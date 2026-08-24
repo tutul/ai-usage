@@ -9,7 +9,7 @@
 ## Scope（這一版要做的）
 
 - 兩個 provider：**Claude**、**Codex**
-- 約每 5 分鐘取樣一次；每次完整保存原始回應（含 `resets_at` 與 raw JSON）
+- 預設每 5 分鐘取樣一次（**可設定**，非寫死常數）
 - SQLite 只存**不可變的原始樣本**；delta 一律由查詢推導
 - 重置邊界以 `resets_at` 變化判定，不靠百分比下降推測
 - Menu bar 顯示兩家當下的 weekly %；點開為圖表視窗（Swift Charts）
@@ -23,7 +23,7 @@
 | Claude | `GET api.anthropic.com/api/oauth/usage` | ✅ 200。需 `anthropic-beta: oauth-2025-04-20` + `User-Agent: claude-code/<ver>`（少了 UA 會落入嚴格限流桶）。回傳 `seven_day.utilization`（float）、`resets_at`（ISO8601）、`limits[].severity`、`extra_usage`，另有多個目前為 null 的分桶（`seven_day_opus`/`seven_day_sonnet` 等） |
 | Codex | `GET chatgpt.com/backend-api/codex/usage` | ✅ 200。`primary_window.limit_window_seconds = 604800`（即週窗，5h 窗已於 2026-07 停用），`secondary_window: null`。**`used_percent` 為整數 → 解析度僅 1%** |
 
-兩者皆為**未公開端點**，可能無預警變更 → 每筆樣本保存完整 `raw_json`，解析層薄且集中。
+兩者皆為**未公開端點**，可能無預警變更 → 保存原始回應（見下方雙表設計），解析層薄且集中。
 
 ## 認證
 
@@ -48,6 +48,38 @@
 `sampled_at` 一律為 HTTP 回應成功的真實時刻。睡 6 小時醒來只會產生**一個**當下的點，
 **永遠不會**回填過去時段的資料點。這也是「小時用量」必須是查詢時 view 的原因 ——
 樣本間隔本就不規則，若存成固定每小時一格，不規則採樣立刻讓資料失真。
+
+**取樣間隔：為何是 5 分鐘而非 1 小時**
+取樣間隔與解析度無關，與「多少資料能被自信歸屬到某小時」有關。
+`NSBackgroundActivityScheduler` **明確不保證準時**，而 gap 規則又禁止跨界均攤 ——
+兩者相加，若每小時只取樣一次，樣本會落在 10:03 / 11:07 / 12:02…，
+**每一段 delta 都橫跨兩個小時，全部不可歸屬，小時圖將整片是 unknown**。
+
+超取樣是把「換省電與休眠正確性時讓出去的時間精度」買回來的手段。
+相鄰樣本間隔 `i` 分鐘時，delta 落在同一小時內的機率為 `(60-i)/60`：
+
+| 間隔 | delta 落在單一小時內 | 樣本/年（兩家） |
+|---|---|---|
+| 60 分 | ~0% | 17.5K |
+| 15 分 | 75% | 70K |
+| 10 分 | 83% | 105K |
+| **5 分（預設）** | **92%** | 210K |
+
+5 分鐘距 Claude 端點的安全下限（180 秒）尚有 1.7 倍餘裕，不會踩到限流。
+**間隔為設定值**：跑一兩週取得真實漂移數據後可調整。
+因存的是原始樣本、delta view 只看時間戳不假設固定間隔，
+**歷史資料在間隔變更後依然完全可用**。
+
+**儲存：sample 與 raw_payload 分表**
+若每次取樣都存完整 `raw_json`（Claude 回應約 1.5KB），一年約 200 MB —— 對一個 menu bar
+工具不合理，且絕大多數樣本百分比未變，存的是重複內容。故拆為兩張表：
+
+- **`sample`** —— **每次觀測都寫**，窄行（`ts, service, window, percent, resets_at, ok`），
+  約 50 bytes。這是 delta view 的唯一來源；「值沒變」本身就是資訊，不可省略
+- **`raw_payload`** —— **僅在解析後內容與前一筆不同時才寫**。
+  Codex 整數百分比一週最多變 100 次，Claude 相近 → 一年數千列，MB 級
+
+保住完整保真度（端點改版時可回溯原始資料），同時將儲存壓回合理範圍。
 
 **Gap 處理**
 長 gap 期間若百分比有變動，該段消耗標記為 **unknown 區間**，**不摻入任何小時**。
@@ -124,3 +156,4 @@ ai-usage/
 | token 過期導致靜默停擺 | 「上次成功抓取」置於 menu bar 最顯眼處，逾時變色 |
 | App 未啟動 / Mac 睡眠造成缺樣本 | 開機自啟 + 醒來立即補抓；殘餘 gap 明確呈現，delta 不跨 gap 硬算 |
 | GRDB 官方對跨行程共享措辭嚴厲 | 該警告針對**多 writer**；本專案為單 writer + 唯讀分析，落在安全的一半 |
+| 高頻取樣導致 DB 膨脹 | `sample` 窄行 + `raw_payload` 僅存變化；~21 MB/年，非 200 MB |
