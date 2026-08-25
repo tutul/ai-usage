@@ -25,6 +25,21 @@
 
 兩者皆為**未公開端點**，可能無預警變更 → 保存原始回應（見下方雙表設計），解析層薄且集中。
 
+**User-Agent 是承載性的（兩個端點皆然，已實測）**
+- Claude：缺少 `claude-code/<ver>` 會落入嚴格限流桶，持續 429
+- Codex：缺少擬真的 `codex_cli_rs/<ver> (...)` 會被 Cloudflare 擋下，回 **403 HTML 挑戰頁**（非 JSON）
+
+→ UA 須為顯式、可設定的常數；**403 必須是獨立的 `error_kind`，不可與 401 混用** ——
+401 的補救是重新授權，403 是 UA／風控問題，跑去重新登入只是白忙。
+
+**窗別一律以 `limit_window_seconds` 判定，絕不以欄位名稱（`primary`/`secondary`）判定**
+Codex 的窗會換位：2026-07 前為 primary=5h / secondary=週，暫停期間為 primary=週 / secondary=null，
+[5 小時限額已於 2026-08-25 對 Plus 恢復](https://9to5mac.com/2026/08/24/openai-restores-5-hour-codex-and-work-limits-for-chatgpt-plus-users/)，
+預期將換回 primary=5h / secondary=週。若以欄位位置對應，換位當下會**默默把 5 小時百分比寫進 weekly 序列**
+——不報錯、不崩潰，只是資料錯了。對應表：`604800`→`weekly`、`18000`→`session`、其他→保留秒數並記為 `other`。
+若回應中不存在 604800 的窗，**不得寫入 weekly 樣本**，而應記為「成功但缺 weekly」，
+避免 UI 把舊值當現況顯示。
+
 ## 認證
 
 - **Claude**：使用者跑 `claude setup-token` 產生獨立長效 token，存入 **本 app 自己的** Keychain item。
@@ -153,6 +168,8 @@ ai-usage/
 |---|---|
 | 未公開端點改版 | 每筆樣本存完整 `raw_json`；解析層薄且集中，壞掉只需改一處 |
 | Codex `used_percent` 整數（解析度 1%） | 小時層級明確標示為粗粒度；日／週彙總為主要視圖 |
+| Codex 窗位置變動（5h 於 2026-08-25 回歸） | 以 `limit_window_seconds` 判定窗別；`shape_sha256` 偵測結構改版並留存原始快照。**schema 無需變更** |
+| Cloudflare 依 UA 擋下請求（403） | UA 為顯式可設定常數；403 獨立分類，不誤導為認證失效 |
 | token 過期導致靜默停擺 | 「上次成功抓取」置於 menu bar 最顯眼處，逾時變色 |
 | App 未啟動 / Mac 睡眠造成缺樣本 | 開機自啟 + 醒來立即補抓；殘餘 gap 明確呈現，delta 不跨 gap 硬算 |
 | GRDB 官方對跨行程共享措辭嚴厲 | 該警告針對**多 writer**；本專案為單 writer + 唯讀分析，落在安全的一半 |

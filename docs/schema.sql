@@ -22,7 +22,7 @@ CREATE TABLE fetch (
   completed_at  INTEGER NOT NULL,              -- 樣本時間戳的唯一來源
   ok            INTEGER NOT NULL CHECK (ok IN (0,1)),
   http_status   INTEGER,
-  error_kind    TEXT,                          -- 'auth'|'network'|'http'|'parse'
+  error_kind    TEXT,                          -- 'auth'(401)|'blocked'(403 UA/風控)|'network'|'http'|'parse'|'missing_window'
   error_detail  TEXT,
   raw_id        INTEGER REFERENCES raw_payload(id)
 );
@@ -33,7 +33,7 @@ CREATE TABLE sample (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   fetch_id       INTEGER NOT NULL REFERENCES fetch(id),
   service        TEXT    NOT NULL,             -- 反正規化：外部查詢與索引用
-  window_kind    TEXT    NOT NULL,             -- 'weekly' | 'session'
+  window_kind    TEXT    NOT NULL,             -- 'weekly'|'session'|'other'；由 limit_window_seconds 判定，非欄位位置
   observed_at    INTEGER NOT NULL,             -- = fetch.completed_at
   percent        REAL    NOT NULL,             -- 0..100
   resets_at      INTEGER,                      -- 窗的身分識別

@@ -10,13 +10,17 @@
 | 時間儲存 | unix epoch 秒、**UTC**。所有 `*_at` 欄位皆然 |
 | 時間分桶 | **本地時區**（透過 `'localtime'` modifier，由讀取端的 TZ 決定）。你在 UTC+8 且無日光節約，桶邊界穩定 |
 | 百分比 | `REAL`，0..100。Codex 實際只給整數，Claude 給 float |
-| 窗身分 | 以 `resets_at` 識別。**不以百分比下降推測重置** |
+| 窗身分 | 以 `resets_at` 識別。**不以百分比下降推測重置**（已於真實資料驗證：曾觀測到 2%→0% 且 `resets_at` 換號的週窗轉換） |
+| 窗別判定 | 以 `limit_window_seconds` 對應：`604800`→`weekly`、`18000`→`session`、其他→`other` 並保留原始秒數。**絕不以 `primary`/`secondary` 欄位位置判定** |
 | Schema 契約 | `meta.schema_version`。變更一律走 migration |
 
 ## 表
 
 - **`fetch`** — 每一次 HTTP 嘗試一列（成功或失敗）。`completed_at` 是樣本時間戳的
   **唯一**來源。失敗列帶 `error_kind`，供 `v_health` 判斷停擺。
+  `error_kind` 分類：`auth`(401) / `blocked`(403，UA 或風控) / `network` / `http` / `parse` /
+  `missing_window`（回應成功但缺 604800 的窗）。
+  **`auth` 與 `blocked` 必須分開** —— 補救方式完全不同。
 - **`sample`** — 每次取樣觀測到的每一個限額窗一列（Claude 一次回 weekly + session 兩個窗）。
   **每次取樣都寫，即使數值沒變** —— 「值沒變」本身就是資訊，少了它就無法區分
   「這段時間沒用」與「這段時間沒觀測」。窄行約 50 bytes。
