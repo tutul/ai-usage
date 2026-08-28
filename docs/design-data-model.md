@@ -1,6 +1,8 @@
 # 資料模型設計
 
-本文說明 `schema.sql` 的設計與取捨。**所有 SQL 均已用 fixture 實測驗證**，涵蓋
+本文說明資料模型的設計與取捨。
+**Schema 正典位於 `Packages/AIUsageKit/Sources/UsageStore/Resources/schema.sql`**
+（由 GRDB migration 直接載入；`PRAGMA` 設定在 GRDB `Configuration`，不寫在 SQL 內）。**所有 SQL 均已用 fixture 實測驗證**，涵蓋
 休眠長 gap、密集取樣下的窗重置、長 gap 中的窗重置、百分比倒退等邊界情境。
 
 ## 約定
@@ -68,7 +70,9 @@
 - **`v_window_summary`** — 每個限額窗一列。`used_percent` = 該窗**最後一次觀測值**（權威），
   `peak_percent` = 峰值，`tail_unobserved_seconds` 大表示窗尾未觀測、數值低估
 - **`v_current`** — menu bar 用的最新讀數
-- **`v_health`** — `last_success_at` / `last_attempt_at` / `failures_total`
+- **`v_health`** — `last_success_at` / `last_attempt_at` / `failures_total` /
+  **`last_weekly_at`**（週樣本的新鮮度直接量在 `sample` 上）。
+  HTTP 成功不等於拿到週用量 —— 窗可能換位或消失，故兩者分開度量，不以 `fetch.ok` 兼表。
 
 ## 已知取捨（誠實記錄）
 

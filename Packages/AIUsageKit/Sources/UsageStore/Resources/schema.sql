@@ -1,5 +1,3 @@
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
 
 CREATE TABLE meta (
   key   TEXT PRIMARY KEY,
@@ -158,8 +156,12 @@ JOIN (SELECT service, window_kind, MAX(observed_at) AS m
 
 -- 健康度：抓不到要看得出來
 CREATE VIEW v_health AS
-SELECT service,
-       MAX(CASE WHEN ok=1 THEN completed_at END) AS last_success_at,
-       MAX(completed_at)                         AS last_attempt_at,
-       SUM(ok=0)                                 AS failures_total
-FROM fetch GROUP BY service;
+SELECT f.service,
+       MAX(CASE WHEN f.ok=1 THEN f.completed_at END) AS last_success_at,
+       MAX(f.completed_at)                           AS last_attempt_at,
+       SUM(f.ok=0)                                   AS failures_total,
+       -- HTTP 成功不等於拿到週用量：窗可能換位或消失。
+       -- 週資料的新鮮度直接量在 sample 上，不靠 fetch.ok 兼表。
+       (SELECT MAX(s.observed_at) FROM sample s
+         WHERE s.service = f.service AND s.window_kind = 'weekly') AS last_weekly_at
+FROM fetch f GROUP BY f.service;
