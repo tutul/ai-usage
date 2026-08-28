@@ -21,7 +21,13 @@ public struct UserAgent: Sendable, Hashable {
 
 enum HTTP {
     /// 403 與 401 必須分開：401 的補救是重新授權，403 是 UA／風控問題。
-    static func perform(_ request: URLRequest) async throws -> String {
+    /// 逾時要有界：實測 Codex 首次請求花了 21 秒（TLS 冷啟動 + Cloudflare）。
+    /// URLSession 預設 60 秒對 5 分鐘一次的取樣過寬，寧可這輪放棄、下輪再來。
+    static let timeout: TimeInterval = 30
+
+    static func perform(_ original: URLRequest) async throws -> String {
+        var request = original
+        request.timeoutInterval = timeout
         let data: Data
         let response: URLResponse
         do {

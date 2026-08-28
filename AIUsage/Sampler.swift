@@ -64,16 +64,26 @@ final class Sampler {
     func sampleAll() async {
         for provider in providers {
             let startedAt = Date()
+            let snapshot: UsageSnapshot
             do {
-                try database.record(try await provider.fetch())
+                snapshot = try await provider.fetch()
             } catch let failure as FetchFailure {
                 try? database.record(failure: failure, service: provider.service,
                                      startedAt: startedAt, completedAt: Date())
+                continue
             } catch {
                 try? database.record(
                     failure: FetchFailure(kind: .network, detail: String(describing: error)),
                     service: provider.service, startedAt: startedAt, completedAt: Date()
                 )
+                continue
+            }
+            // 寫入失敗是另一回事，不可標成取樣失敗 —— 而且此時也寫不進 DB，
+            // 只能浮到 UI 上，否則會變成看不見的資料遺失。
+            do {
+                try database.record(snapshot)
+            } catch {
+                model.loadError = "寫入資料庫失敗（\(provider.service.rawValue)）：\(error)"
             }
         }
         model.reload()

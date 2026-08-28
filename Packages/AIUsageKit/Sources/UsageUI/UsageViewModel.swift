@@ -9,7 +9,7 @@ public final class UsageViewModel {
     public var readings: [CurrentReading] = []
     public var health: [Health] = []
     public var hourly: [Service: [HourlyBucket]] = [:]
-    public var loadError: String?
+    public var loadError: String?  // 排程器也會寫入寫庫失敗訊息
 
     let database: UsageDatabase
     /// 取樣間隔（秒）。逾此值的兩倍未成功取樣即視為停擺。

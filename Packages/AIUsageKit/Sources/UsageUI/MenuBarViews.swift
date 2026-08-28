@@ -29,11 +29,19 @@ public struct MenuBarContent: View {
     @Bindable var model: UsageViewModel
     let onRefresh: () -> Void
     let onOpenHistory: () -> Void
+    let onSaveClaudeToken: (String) throws -> Void
+    @State private var showingTokenSetup = false
 
-    public init(model: UsageViewModel, onRefresh: @escaping () -> Void, onOpenHistory: @escaping () -> Void) {
+    public init(
+        model: UsageViewModel,
+        onRefresh: @escaping () -> Void,
+        onOpenHistory: @escaping () -> Void,
+        onSaveClaudeToken: @escaping (String) throws -> Void
+    ) {
         self.model = model
         self.onRefresh = onRefresh
         self.onOpenHistory = onOpenHistory
+        self.onSaveClaudeToken = onSaveClaudeToken
     }
 
     public var body: some View {
@@ -52,6 +60,7 @@ public struct MenuBarContent: View {
             HStack {
                 Button("立即更新", action: onRefresh)
                 Button("歷史圖表", action: onOpenHistory)
+                Button("設定") { showingTokenSetup = true }
                 Spacer()
                 Button("結束") { NSApplication.shared.terminate(nil) }
             }
@@ -60,6 +69,9 @@ public struct MenuBarContent: View {
         }
         .padding(14)
         .frame(width: 280)
+        .popover(isPresented: $showingTokenSetup) {
+            TokenSetupView(onSave: onSaveClaudeToken)
+        }
     }
 }
 
