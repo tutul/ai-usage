@@ -8,13 +8,20 @@
 ## 設定
 
 1. **Codex** —— 免設定。唯讀 `~/.codex/auth.json`，續期由 ChatGPT.app 負責。
-2. **Claude** —— 產生一組專用 token：
-   ```bash
-   claude setup-token
-   ```
-   然後點 menu bar 圖示 →「設定」→ 貼上。
-   **由 app 自己寫入 Keychain**，不要用 `security` CLI ——
-   CLI 建立的項目 ACL 只信任 `security`，app 每次讀取都會跳授權對話框。
+2. **Claude** —— 免設定，但**必須安裝 Claude Code 並已登入**。
+   本 app 唯讀 Claude Code 的憑證（`~/.claude/.credentials.json`，
+   或 Keychain 項目 `Claude Code-credentials`）。
+
+   首次讀取時 macOS 會跳一次授權對話框，按**「一律允許」**即可。
+   本 app 為 ad-hoc 簽章，**每次重新建置簽章會改變，可能再次跳出**。
+
+   > ⚠️ **不要用 `claude setup-token`。** 它產生的 token 缺少 `user:profile` scope，
+   > 打 `/api/oauth/usage` 會得到
+   > `permission_error: OAuth token does not meet scope requirement user:profile`。
+
+   token 續期由 Claude Code 負責，本 app 不寫回。
+   若長期未使用 Claude Code 導致 token 過期，選單會顯示「已過期」，
+   開一次 Claude Code 即可。
 
 ## 建置與執行
 

@@ -45,9 +45,20 @@ enum HTTP {
         case 401:
             throw FetchFailure(kind: .auth, httpStatus: 401, detail: "token 失效或已過期")
         case 403:
+            // 兩種完全不同的 403：API 層的權限錯誤（JSON），與 Cloudflare 的風控頁（HTML）。
+            // 補救方式不同，訊息必須分開，否則會叫人去查錯方向。
+            if let data = body.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let error = json["error"] as? [String: Any],
+               let message = error["message"] as? String {
+                throw FetchFailure(
+                    kind: .auth, httpStatus: 403,
+                    detail: "權限不足：\(message)"
+                )
+            }
             throw FetchFailure(
                 kind: .blocked, httpStatus: 403,
-                detail: "被拒（多半是 User-Agent／風控，非認證問題）：\(body.prefix(120))"
+                detail: "被風控擋下（多為 User-Agent 問題，非認證）：\(body.prefix(120))"
             )
         default:
             throw FetchFailure(

@@ -40,12 +40,6 @@ final class AppState {
     func refreshNow() {
         Task { await sampler?.sampleAll() }
     }
-
-    /// 由 app 自己寫入 Keychain —— 成為該項目的擁有者，避免每次讀取都跳授權對話框。
-    func saveClaudeToken(_ token: String) throws {
-        try ClaudeCredentialSource().store(token: token)
-        refreshNow()
-    }
 }
 
 @main
@@ -59,8 +53,7 @@ struct AIUsageApp: App {
                 MenuBarContent(
                     model: model,
                     onRefresh: { state.refreshNow() },
-                    onOpenHistory: { openWindow(id: "history") },
-                    onSaveClaudeToken: { try state.saveClaudeToken($0) }
+                    onOpenHistory: { openWindow(id: "history") }
                 )
             } else {
                 VStack(alignment: .leading, spacing: 8) {
