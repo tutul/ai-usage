@@ -201,6 +201,23 @@ public final class UsageDatabase: Sendable {
         }
     }
 
+    /// 目前是否處於失敗狀態，以及失敗原因。
+    /// 只在「最後一次嘗試失敗」時回傳 —— 已經恢復的舊失敗不該再影響 UI。
+    public func currentFailure(service: Service) throws -> (kind: String, detail: String)? {
+        try pool.read { db in
+            guard let row = try Row.fetchOne(
+                db,
+                sql: """
+                SELECT ok, error_kind, error_detail FROM fetch
+                 WHERE service = ? ORDER BY completed_at DESC, id DESC LIMIT 1
+                """,
+                arguments: [service.rawValue]
+            ) else { return nil }
+            guard (row["ok"] as Int) == 0 else { return nil }
+            return (row["error_kind"] ?? "unknown", row["error_detail"] ?? "")
+        }
+    }
+
     public func health() throws -> [Health] {
         try pool.read { db in
             try Row.fetchAll(db, sql: "SELECT * FROM v_health").compactMap { row in

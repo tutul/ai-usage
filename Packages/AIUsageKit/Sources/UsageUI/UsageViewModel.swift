@@ -9,6 +9,7 @@ public final class UsageViewModel {
     public var readings: [CurrentReading] = []
     public var health: [Health] = []
     public var hourly: [Service: [HourlyBucket]] = [:]
+    public var failures: [Service: (kind: String, detail: String)] = [:]
     public var loadError: String?  // 排程器也會寫入寫庫失敗訊息
 
     let database: UsageDatabase
@@ -29,6 +30,13 @@ public final class UsageViewModel {
                 buckets[service] = try database.hourly(service: service, since: since)
             }
             hourly = buckets
+            var currentFailures: [Service: (kind: String, detail: String)] = [:]
+            for service in Service.allCases {
+                if let failure = try database.currentFailure(service: service) {
+                    currentFailures[service] = failure
+                }
+            }
+            failures = currentFailures
             loadError = nil
         } catch {
             loadError = String(describing: error)
@@ -48,6 +56,23 @@ public final class UsageViewModel {
     public func isStale(_ service: Service, now: Date = .now) -> Bool {
         guard let last = health(for: service)?.lastWeeklyAt else { return true }
         return now.timeIntervalSince(last) > samplingInterval * 2
+    }
+
+    /// 憑證過期是**良性**停擺：開一次對應的 app 就好，不是壞掉。
+    /// 不該和「取樣真的失敗」用同一種警示強度 —— 狼來了喊多了就沒人看。
+    public func isBenignStale(_ service: Service) -> Bool {
+        failures[service]?.kind == "auth"
+    }
+
+    /// 需要你注意的停擺（排除良性者）。
+    public func needsAttention(_ service: Service, now: Date = .now) -> Bool {
+        isStale(service, now: now) && !isBenignStale(service)
+    }
+
+    /// 停擺原因，已是可行動的句子。
+    public func failureHint(_ service: Service) -> String? {
+        guard let failure = failures[service] else { return nil }
+        return failure.detail.isEmpty ? failure.kind : failure.detail
     }
 
     public func staleness(_ service: Service, now: Date = .now) -> String {

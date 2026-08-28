@@ -63,15 +63,24 @@ struct ServiceRow: View {
             ProgressView(value: min((reading?.percent ?? 0) / 100, 1))
                 .tint(stale ? .gray : tint(for: reading?.percent ?? 0))
             HStack {
-                // 停擺時把「上次更新」擺在最顯眼處，並改用警示色
+                // 停擺時把「上次更新」擺在最顯眼處。良性（憑證過期）用次要色，
+                // 只有真的壞掉才用警示色。
                 Text(model.staleness(service))
-                    .foregroundStyle(stale ? .orange : .secondary)
+                    .foregroundStyle(model.needsAttention(service) ? .orange : .secondary)
                 Spacer()
                 if let countdown = reading?.resetCountdown {
                     Text(countdown).foregroundStyle(.secondary)
                 }
             }
             .font(.caption)
+
+            if stale, let hint = model.failureHint(service) {
+                Text(hint)
+                    .font(.caption2)
+                    .foregroundStyle(model.needsAttention(service) ? .orange : .secondary)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 

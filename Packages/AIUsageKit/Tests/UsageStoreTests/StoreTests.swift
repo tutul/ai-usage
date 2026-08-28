@@ -93,6 +93,40 @@ struct RecordTests {
     }
 }
 
+@Suite("目前失敗狀態")
+struct CurrentFailureTests {
+    @Test("最後一次成功 -> 不回報失敗（舊失敗不該繼續影響 UI）")
+    func recoveredClearsFailure() throws {
+        let db = try tempDB()
+        let t = Date(timeIntervalSince1970: 1_787_000_000)
+        try db.record(failure: .init(kind: .auth, httpStatus: 401, detail: "expired"),
+                      service: .claude, startedAt: t, completedAt: t)
+        #expect(try db.currentFailure(service: .claude)?.kind == "auth")
+
+        try db.record(UsageSnapshot(
+            service: .claude, observedAt: t.addingTimeInterval(300),
+            windows: [.init(kind: .weekly, percent: 52,
+                            resetsAt: Date(timeIntervalSince1970: 1_788_000_000))],
+            rawBody: #"{"seven_day":{"utilization":52}}"#
+        ))
+        #expect(try db.currentFailure(service: .claude) == nil, "已恢復就不該再回報失敗")
+    }
+
+    @Test("最後一次失敗 -> 回報，且區分 auth（良性）與 blocked")
+    func lastFailureReported() throws {
+        let db = try tempDB()
+        let t = Date(timeIntervalSince1970: 1_787_000_000)
+        try db.record(failure: .init(kind: .blocked, httpStatus: 403, detail: "cloudflare"),
+                      service: .codex, startedAt: t, completedAt: t)
+        try db.record(failure: .init(kind: .auth, detail: "token 已過期"),
+                      service: .codex, startedAt: t.addingTimeInterval(300),
+                      completedAt: t.addingTimeInterval(300))
+        let failure = try db.currentFailure(service: .codex)
+        #expect(failure?.kind == "auth")
+        #expect(failure?.detail == "token 已過期")
+    }
+}
+
 @Suite("View 行為")
 struct ViewTests {
     /// 對應 design-data-model.md 的核心判準：

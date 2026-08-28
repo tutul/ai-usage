@@ -7,7 +7,8 @@ public struct MenuBarLabel: View {
     let model: UsageViewModel
     public init(model: UsageViewModel) { self.model = model }
 
-    /// 任一服務停擺就整體示警 —— 「有一家沒在記錄」比「另一家的數字」重要。
+    /// 只有「真的壞了」才示警。憑證過期屬良性，放個週末回來不該看到警告三角。
+    var anyBroken: Bool { Service.allCases.contains { model.needsAttention($0) } }
     var anyStale: Bool { Service.allCases.contains { model.isStale($0) } }
 
     var maxPercent: Double {
@@ -15,7 +16,7 @@ public struct MenuBarLabel: View {
     }
 
     var symbol: String {
-        guard !anyStale else { return "exclamationmark.triangle.fill" }
+        guard !anyBroken else { return "exclamationmark.triangle.fill" }
         switch maxPercent {
         case ..<20: return "gauge.with.dots.needle.0percent"
         case ..<45: return "gauge.with.dots.needle.33percent"
@@ -26,7 +27,8 @@ public struct MenuBarLabel: View {
     }
 
     var tint: Color {
-        if anyStale { return .orange }
+        if anyBroken { return .orange }
+        if anyStale { return .secondary }   // 良性停擺：變灰，不喧嘩
         switch maxPercent {
         case ..<70: return .primary
         case ..<90: return .orange
