@@ -105,10 +105,14 @@ public extension Service {
 }
 
 public extension CurrentReading {
-    /// 滾動窗回報的 resets_at 恆為「現在 + 窗長」，倒數永遠停在同一個數字，
-    /// 顯示出來會讓人以為額度一直在被重置。改為說明窗的性質。
+    /// 窗以「首次使用」為錨點。尚未開始時伺服器回報 resets_at = 現在 + 窗長，
+    /// 該值隨每次取樣前移，倒數永遠停在同一個數字 —— 顯示出來會讓人
+    /// 誤以為額度一直在被重置。
     var resetCountdown: String? {
-        if isRolling { return "滾動 \(windowKind == "weekly" ? "7 天" : "5 小時")" }
+        guard windowStarted else {
+            let length = windowSeconds.map { $0 >= 604_800 ? "7 天" : "5 小時" } ?? "整段"
+            return "未開始計時（\(length)窗）"
+        }
         guard let resetsAt else { return nil }
         let seconds = Int(resetsAt.timeIntervalSinceNow)
         guard seconds > 0 else { return "即將重置" }

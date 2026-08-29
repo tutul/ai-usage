@@ -126,15 +126,15 @@ struct WindowIdentityTests {
         #expect(windows == 1, "應只有一個週窗")
     }
 
-    /// Codex 的 resets_at 恆為 observed_at + 604800（滾動窗），
-    /// 每次取樣都往前移，拿它當身分等於每筆都換窗。
-    @Test("滾動窗的 resets_at 持續前移，不可被判成重置")
-    func rollingWindowNeverResets() throws {
+    /// 窗尚未開始使用時，伺服器回報 resets_at = observed_at + window_seconds，
+    /// 該值每次取樣都往前移。拿它當身分等於每筆都換窗（實測產生 123 個假窗）。
+    @Test("未開始的窗其 resets_at 持續前移，不可被判成重置")
+    func unstartedWindowNeverResets() throws {
         let db = try tempDB()
         let base = Date(timeIntervalSince1970: 1_787_000_000)
         for i in 0..<6 {
             let at = base.addingTimeInterval(Double(i) * 300)
-            try db.record(weeklySample(.codex, percent: Double(i),
+            try db.record(weeklySample(.codex, percent: 0,
                                        resetsAt: Int(at.timeIntervalSince1970) + 604_800, at: at))
         }
         let kinds = try db.pool.read {
@@ -142,21 +142,42 @@ struct WindowIdentityTests {
         }
         #expect(kinds.contains("reset") == false)
         #expect(kinds.contains("reset_in_gap") == false)
-        let total = try db.pool.read {
-            try Double.fetchOne($0, sql: "SELECT SUM(delta_percent) FROM v_sample_delta WHERE service='codex' AND window_kind='weekly'")
+        let windows = try db.pool.read {
+            try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM v_window_summary WHERE service='codex' AND window_kind='weekly'")
         }
-        #expect(total == 5.0, "0→5 共增加 5，不該因假重置而膨脹")
+        #expect(windows == 1, "未開始的窗不該被切成多個")
     }
 
-    @Test("滾動窗標記為 rolling，UI 據此不顯示重置倒數")
-    func policyExposedToUI() throws {
+    /// 開始使用後 resets_at 變成真實剩餘時間（remain < window_seconds），
+    /// 此時「未開始 -> 已開始」是一次真正的窗界線。
+    @Test("由未開始轉為已開始 -> 視為窗開始，delta 為當前百分比")
+    func transitionToStartedIsAWindowBoundary() throws {
+        let db = try tempDB()
+        let base = Date(timeIntervalSince1970: 1_787_000_000)
+        let t0 = Int(base.timeIntervalSince1970)
+        try db.record(weeklySample(.codex, percent: 0, resetsAt: t0 + 604_800, at: base))
+        let later = base.addingTimeInterval(300)
+        // 已開始：剩餘 138763 秒，遠小於窗長
+        try db.record(weeklySample(.codex, percent: 2,
+                                   resetsAt: Int(later.timeIntervalSince1970) + 138_763, at: later))
+        let row = try db.pool.read {
+            try Row.fetchOne($0, sql: "SELECT kind, delta_percent, window_started FROM v_sample_delta WHERE service='codex' ORDER BY observed_at DESC LIMIT 1")
+        }
+        #expect((row?["kind"] as String?) == "reset")
+        #expect((row?["delta_percent"] as Double?) == 2.0)
+        #expect((row?["window_started"] as Int?) == 1)
+    }
+
+    @Test("window_started 傳到 UI，未開始時不顯示倒數")
+    func startedFlagExposedToUI() throws {
         let db = try tempDB()
         let now = Date(timeIntervalSince1970: 1_787_000_000)
-        try db.record(weeklySample(.codex, percent: 3, resetsAt: 1_787_604_800, at: now))
-        try db.record(weeklySample(.claude, percent: 40, resetsAt: 1_788_310_799, at: now))
+        let t = Int(now.timeIntervalSince1970)
+        try db.record(weeklySample(.codex, percent: 0, resetsAt: t + 604_800, at: now))
+        try db.record(weeklySample(.claude, percent: 40, resetsAt: t + 332_007, at: now))
         let readings = try db.current()
-        #expect(readings.first { $0.service == .codex }?.isRolling == true)
-        #expect(readings.first { $0.service == .claude }?.isRolling == false)
+        #expect(readings.first { $0.service == .codex }?.windowStarted == false)
+        #expect(readings.first { $0.service == .claude }?.windowStarted == true)
     }
 }
 
@@ -241,17 +262,4 @@ struct ViewTests {
         #expect((row?["delta_percent"] as Double?) == 0.5, "重置後 delta 應為新窗自 0 起算的累積量")
     }
 
-    /// 滾動窗的百分比下降是舊消耗滑出窗外，屬正常現象，delta 為 0 而非負值。
-    @Test("滾動窗的百分比下降歸類為 decay，不是 regress 也不是 reset")
-    func rollingDecay() throws {
-        let db = try tempDB()
-        let base = Date(timeIntervalSince1970: 1_787_000_000)
-        try db.record(snapshot(.codex, percent: 8, resetsAt: 1_787_604_800, at: base))
-        try db.record(snapshot(.codex, percent: 5, resetsAt: 1_787_605_100, at: base.addingTimeInterval(300)))
-        let row = try db.pool.read {
-            try Row.fetchOne($0, sql: "SELECT kind, delta_percent FROM v_sample_delta ORDER BY observed_at DESC LIMIT 1")
-        }
-        #expect((row?["kind"] as String?) == "decay")
-        #expect((row?["delta_percent"] as Double?) == 0.0)
-    }
 }

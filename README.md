@@ -79,7 +79,8 @@ sqlite3 "$HOME/Library/Application Support/AIUsage/usage.sqlite" ".backup /tmp/s
 
 - 沒有樣本的小時**不會產生任何列**。無資料 ≠ 0，圖表據此斷線。
 - Codex 的 `used_percent` 是整數（解析度 1%），小時層級偏粗，日／週才有意義。
-- **Codex 是滾動窗**（`reset_at` 恆為「現在 + 7 天」），沒有「重置」這個事件，
-  故 UI 顯示「滾動 7 天」而非倒數。Claude 才是固定邊界窗，會顯示真實倒數。
+- **限額窗以「首次使用」為錨點**（非日曆固定）。窗尚未開始時，伺服器回報
+  `resets_at = 現在 + 窗長` 作為佔位值，倒數永遠不會減少 ——
+  UI 因此顯示「未開始計時」而非假倒數。
 - 取樣用 `NSBackgroundActivityScheduler`，有 tolerance，**不保證每小時都有樣本**。
 - delta 加總是近似值（百分比下修時會夾擠為 0）；精確週用量請讀 `v_window_summary.used_percent`。

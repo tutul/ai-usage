@@ -76,33 +76,44 @@
   **`last_weekly_at`**（週樣本的新鮮度直接量在 `sample` 上）。
   HTTP 成功不等於拿到週用量 —— 窗可能換位或消失，故兩者分開度量，不以 `fetch.ok` 兼表。
 
-## 窗語意：兩家 provider 完全不同（實測 180 筆樣本）
+## 窗語意：固定時長、以首次使用為錨點
 
-```
-codex  weekly   resets_at - observed_at  恆為 604800（= window_seconds）
-codex  session  resets_at - observed_at  恆為 18000
-claude weekly   remain 由 382400 遞減至 332007，resets_at 固定
-```
+兩家的限額窗都是**固定時長、從首次使用起算**，而非日曆固定或滾動。
+[OpenAI 客服說法](https://community.openai.com/t/reset-codex-s-weekly-limit-on-a-fixed-day/1386852)：
+「weekly window starts at the first message you send」；每個帳號的窗
+anchors to its own first request after the previous reset。
 
-**Codex 回報的是滾動窗**：`reset_at` 永遠是「現在 + 窗長」，不帶任何窗身分資訊。
-**Claude 才是固定邊界窗**，`resets_at` 為真實的重置時刻（秒級有 ±1s 抖動）。
+**窗尚未開始時，伺服器回報 `resets_at = 現在 + window_seconds` 作為佔位值**，
+該值隨每次取樣前移，不帶任何身分資訊。實測對照：
 
-| policy | 判定方式 | delta 規則 |
+| Codex weekly | `reset_after_seconds` | 意義 |
 |---|---|---|
-| `fixed_reset`（Claude） | `resets_at` 差異超過 `reset_tolerance_seconds`(120) 才算換窗 | 換窗時 delta = 當前百分比 |
-| `rolling`（Codex） | **永不換窗** | 上升為新消耗；下降是舊消耗滑出窗外，標為 `decay`，delta = 0 |
+| 用量 2% | 138763（約 1.6 天） | 窗已開始 5.4 天，真實剩餘 |
+| 用量 0% | 604800（整整 7 天） | **窗未開始**，佔位值 |
 
-### 這兩件事在真實資料上造成的實際損害
+由此得到一條**對兩家都成立**的統一規則，不需 per-provider 政策：
 
-1. **Claude 的 ±1s 抖動**：以 `resets_at` 精確比對，同一週窗被判成 49 次重置，
-   每次 delta = 當前百分比（約 54%）→ 累積 **2641% 的假 delta**，小時桶出現 270%、日桶 2106%。
-2. **Codex 的滾動 `reset_at`**：每次取樣都被判成換窗，123 個假窗。
+> `resets_at - observed_at ≈ window_seconds` ⟹ 窗未開始，`resets_at` 無身分意義。
 
-兩者的原始樣本都**完全正確** —— 錯的只有推導層，改 view 即可，不需修任何資料。
-這是「存原始樣本、查詢時才推導」這個決定的直接回報。
+`window_started = 0` 的樣本其 `effective_resets_at` 視為 NULL；
+「未開始 ⟷ 已開始」的轉換即為一次真正的窗界線。
 
-⚠️ 這類問題**只有真實資料會浮現**。原本的 fixture 用乾淨的整數 `resets_at`，
-永遠測不出抖動；用固定的 `resets_at` 也測不出滾動窗。已補上兩個回歸測試釘住。
+### 這在真實資料上造成過的損害
+
+1. **Claude 的 `resets_at` ±1s 抖動**：以精確比對判定換窗，同一週窗被判成 49 次重置，
+   每次 delta = 當前百分比（約 54%）→ 累積 **2641% 假 delta**，小時桶 270%、日桶 2106%。
+2. **Codex 閒置時 `resets_at` 持續前移**：每次取樣都被判成換窗 → **123 個假窗**。
+
+兩者的原始樣本都完全正確 —— 錯的只有推導層，改 view 即可，**不需修任何資料**。
+這是「存原始樣本、查詢時才推導」的直接回報。
+
+### 兩個推論教訓（比 bug 本身更值得記）
+
+- **只有真實資料會浮現這類問題。** fixture 用乾淨的整數 `resets_at` 測不出抖動，
+  用固定值也測不出未開始窗。回歸測試必須照真實觀察到的現象撰寫。
+- **不可在「無用量」的資料上推論窗行為。** 曾據 180 筆 `percent` 全為 0 的樣本
+  推論 Codex 是「滾動窗」（migration 003），那是被混淆變項誤導的錯誤結論；
+  同一份資料中「用量 2%」的對照組就足以推翻它。004 已更正。
 
 ## 已知取捨（誠實記錄）
 

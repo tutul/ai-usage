@@ -8,10 +8,10 @@ public struct CurrentReading: Sendable, Hashable {
     public let observedAt: Date
     public let percent: Double
     public let resetsAt: Date?
-    /// 'fixed_reset' | 'rolling'。滾動窗不該顯示重置倒數。
-    public let policy: String
-
-    public var isRolling: Bool { policy == "rolling" }
+    /// 窗是否已開始計時。未開始時 resets_at 是「現在 + 窗長」的佔位值，
+    /// 倒數永遠不會減少，不該顯示。
+    public let windowStarted: Bool
+    public let windowSeconds: Int?
 }
 
 public struct HourlyBucket: Sendable, Hashable {
@@ -190,7 +190,8 @@ public final class UsageDatabase: Sendable {
                     observedAt: Date(timeIntervalSince1970: TimeInterval(row["observed_at"] as Int)),
                     percent: row["percent"],
                     resetsAt: resets.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                    policy: row["policy"] ?? "fixed_reset"
+                    windowStarted: (row["window_started"] as Int? ?? 0) == 1,
+                    windowSeconds: row["window_seconds"]
                 )
             }
         }
