@@ -114,8 +114,9 @@ cd Packages/AIUsageKit && swift test    # 28 個測試，不需啟動 app
 
 - 架構與資料模型 → [docs/architecture.md](docs/architecture.md)
 - 工程慣例 → [docs/conventions.md](docs/conventions.md)
-- 決策紀錄（含被推翻的） → [docs/decisions.md](docs/decisions.md)
-- 現況與下一步 → [docs/status.md](docs/status.md)
+- 決策紀錄（含被推翻的） → [docs/history/decisions.md](docs/history/decisions.md)
+- 現況 → [docs/status.md](docs/status.md)
+- 下一步 → [docs/TODO.md](docs/TODO.md)
 - Agent 工作指引 → [AGENTS.md](AGENTS.md)
 
 ## 已知限制

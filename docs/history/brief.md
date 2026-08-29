@@ -4,7 +4,7 @@
 > 不再更新。** 部分結論已被後續實測推翻（特別是窗語意與 Claude 憑證方案）——
 > 以 [decisions.md](decisions.md) 為準。
 >
-> 目前架構 → [architecture.md](architecture.md)　現況 → [status.md](status.md)
+> 目前架構 → [architecture.md](../architecture.md)　現況 → [status.md](../status.md)
 
 
 **Goal**

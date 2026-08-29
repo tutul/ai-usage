@@ -1,6 +1,6 @@
 # 架構與資料模型
 
-**目前狀態**的描述。歷史決策與被推翻的方案見 [decisions.md](decisions.md)。
+**目前狀態**的描述。歷史決策與被推翻的方案見 [decisions.md](history/decisions.md)。
 
 ## 模組
 

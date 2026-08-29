@@ -104,7 +104,7 @@ Cloudflare 的風控頁是 HTML。前者歸 `auth`，後者歸 `blocked`。
 ## Commit
 
 主旨用祈使句，中文。內文說明**為什麼**與**推翻了什麼**，附實測數字。
-決策若被推翻，在 [decisions.md](decisions.md) 補一筆，不要默默改掉。
+決策若被推翻，在 [decisions.md](history/decisions.md) 補一筆，不要默默改掉。
 
 ```
 fix: 更正窗模型 —— 以首次使用為錨點，而非滾動窗

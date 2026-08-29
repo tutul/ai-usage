@@ -9,8 +9,9 @@
 
 - 詳細架構 → [docs/architecture.md](docs/architecture.md)
 - 工程慣例 → [docs/conventions.md](docs/conventions.md)
-- 為什麼是現在這樣 → [docs/decisions.md](docs/decisions.md)
-- 現況與下一步 → [docs/status.md](docs/status.md)
+- 為什麼是現在這樣 → [docs/history/decisions.md](docs/history/decisions.md)
+- 現況 → [docs/status.md](docs/status.md)
+- 下一步 → [docs/TODO.md](docs/TODO.md)
 
 ## 指令
 
