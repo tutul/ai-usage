@@ -1,4 +1,11 @@
-# ai-usage — brief
+# ai-usage — brief（歷史文件）
+
+> 📌 **這是 2026-08-25 定案的原始範圍協議，記錄專案開工前的可行性驗證與範圍決定，
+> 不再更新。** 部分結論已被後續實測推翻（特別是窗語意與 Claude 憑證方案）——
+> 以 [decisions.md](decisions.md) 為準。
+>
+> 目前架構 → [architecture.md](architecture.md)　現況 → [status.md](status.md)
+
 
 **Goal**
 一個常駐 macOS menu bar 的 app，持續抓取 Claude 與 Codex 訂閱的 **weekly 用量百分比**，

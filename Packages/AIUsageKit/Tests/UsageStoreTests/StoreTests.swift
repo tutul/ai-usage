@@ -241,7 +241,7 @@ struct CurrentFailureTests {
 
 @Suite("View 行為")
 struct ViewTests {
-    /// 對應 design-data-model.md 的核心判準：
+    /// 對應 docs/architecture.md 的歸屬判準：
     /// 同一段長 gap，在小時層級不可歸屬、在日層級可歸屬。
     @Test("長 gap 在小時層級進 unknown，在日層級進 used")
     func gapAttributionVariesByGranularity() throws {
