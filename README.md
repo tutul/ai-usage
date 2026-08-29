@@ -61,7 +61,7 @@ sqlite3 "$HOME/Library/Application Support/AIUsage/usage.sqlite" \
 | `v_sample_delta` | 每組相鄰樣本的 delta 與分類（可稽核） |
 | `v_unknown_span` | 不可歸屬的區間（圖表畫斜線帶） |
 | `v_window_seq` | 為每筆樣本標上窗編號（滾動窗恆為 0） |
-| `v_window_summary` | 每個限額窗的實際用量（**不經 delta 推導，最精確**） |
+| `v_window_summary` | 每個限額窗的實際用量（**不經 delta 推導，最精確**），含 `ended_early`（是否被提前重置）與 `observed_duration_seconds` |
 | `v_health` | 取樣健康度，含 `last_weekly_at` |
 
 ⚠️ **DB 檔不可放在 iCloud Drive / Dropbox / 網路磁碟** —— WAL 依賴 shared memory。

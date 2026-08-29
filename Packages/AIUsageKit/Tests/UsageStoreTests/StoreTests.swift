@@ -168,6 +168,30 @@ struct WindowIdentityTests {
         #expect((row?["window_started"] as Int?) == 1)
     }
 
+    /// OpenAI 曾多次對全體付費用戶提前重置 Codex 額度。這類重置在資料上與
+    /// 正常窗到期相同，但被切斷的「週」較短，不標記事後會分不清
+    /// 「那週沒用」與「額度被提前清掉」。
+    @Test("排定重置前就換窗 -> 標記為提前重置")
+    func earlyResetFlagged() throws {
+        let db = try tempDB()
+        let base = Date(timeIntervalSince1970: 1_787_000_000)
+        let t0 = Int(base.timeIntervalSince1970)
+        // 窗一：排定 7 天後重置
+        try db.record(weeklySample(.claude, percent: 40, resetsAt: t0 + 500_000, at: base))
+        // 窗二：僅 10 分鐘後就換窗 —— 遠早於排定時間
+        let later = base.addingTimeInterval(600)
+        try db.record(weeklySample(.claude, percent: 1,
+                                   resetsAt: Int(later.timeIntervalSince1970) + 500_000, at: later))
+        try db.record(weeklySample(.claude, percent: 2,
+                                   resetsAt: Int(later.timeIntervalSince1970) + 500_000,
+                                   at: later.addingTimeInterval(300)))
+        let flags = try db.pool.read {
+            try Row.fetchAll($0, sql: "SELECT window_seq, ended_early FROM v_window_summary WHERE service='claude' AND window_kind='weekly' ORDER BY window_seq")
+        }
+        #expect((flags.first?["ended_early"] as Int?) == 1, "第一個窗被提前切斷")
+        #expect((flags.last?["ended_early"] as Int?) == nil, "最後一個窗仍在進行中，無從判斷")
+    }
+
     @Test("window_started 傳到 UI，未開始時不顯示倒數")
     func startedFlagExposedToUI() throws {
         let db = try tempDB()
