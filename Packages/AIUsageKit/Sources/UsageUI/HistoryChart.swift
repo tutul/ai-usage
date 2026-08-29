@@ -42,8 +42,9 @@ public struct HistoryChartView: View {
                 chart
             }
 
-            Text("「未知區間」表示該段消耗確實發生，但因取樣中斷而無法歸屬到特定小時；"
-                 + "日與週的彙總仍會計入。沒有樣本的小時不會出現長條。")
+            Text("灰色基線 = 該小時有取樣但用量無變化；完全空白 = 該小時沒有取樣。"
+                 + "「未知區間」表示消耗確實發生，但因取樣中斷而無法歸屬到特定小時，"
+                 + "日與週的彙總仍會計入。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -121,12 +122,24 @@ public struct HistoryChartView: View {
                     )
                     .foregroundStyle(by: .value("類別", "未知區間"))
                 }
+                // 有取樣但用量沒變 -> 畫一條零基線標記。
+                // 否則「有抓但沒變」與「完全沒抓」在圖上都是空白，
+                // 使用者得逐格 hover 才分得出來 —— 那正是本專案最該避免的混淆。
+                if (bucket.usedPercent ?? 0) == 0 && (bucket.unknownPercent ?? 0) == 0 {
+                    RectangleMark(
+                        x: .value("時間", bucket.hourStart, unit: .hour),
+                        y: .value("用量 %", 0),
+                        height: .fixed(3)
+                    )
+                    .foregroundStyle(by: .value("類別", "已取樣・無變化"))
+                }
             }
         }
         // 不再加 opacity —— 先前 0.45 讓橘色在深色背景上變成褐色，與圖例對不起來
         .chartForegroundStyleScale([
             "已歸屬": Color.accentColor,
-            "未知區間": Color.orange
+            "未知區間": Color.orange,
+            "已取樣・無變化": Color.secondary
         ])
         .chartLegend(position: .top, alignment: .leading)
         .chartXAxis {
