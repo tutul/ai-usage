@@ -8,7 +8,9 @@ import UsageStore
 public final class UsageViewModel {
     public var readings: [CurrentReading] = []
     public var health: [Health] = []
-    public var hourly: [Service: [HourlyBucket]] = [:]
+    public var buckets: [Service: [UsageBucket]] = [:]
+    public var recentFetches: [RecentFetch] = []
+    public var granularity: Granularity = .hour
     public var failures: [Service: (kind: String, detail: String)] = [:]
     public var loadError: String?  // 排程器也會寫入寫庫失敗訊息
 
@@ -20,16 +22,19 @@ public final class UsageViewModel {
         self.database = database
     }
 
-    public func reload(historyDays: Int = 7) {
+    public func reload(historyDays: Int = 30) {
         do {
             readings = try database.current()
             health = try database.health()
+            recentFetches = try database.recentFetches(limit: 10)
             let since = Date().addingTimeInterval(-Double(historyDays) * 86_400)
-            var buckets: [Service: [HourlyBucket]] = [:]
+            var loaded: [Service: [UsageBucket]] = [:]
             for service in Service.allCases {
-                buckets[service] = try database.hourly(service: service, since: since)
+                loaded[service] = try database.buckets(
+                    service: service, granularity: granularity, since: since
+                )
             }
-            hourly = buckets
+            buckets = loaded
             var currentFailures: [Service: (kind: String, detail: String)] = [:]
             for service in Service.allCases {
                 if let failure = try database.currentFailure(service: service) {

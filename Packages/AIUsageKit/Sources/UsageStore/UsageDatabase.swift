@@ -14,14 +14,39 @@ public struct CurrentReading: Sendable, Hashable {
     public let windowSeconds: Int?
 }
 
-public struct HourlyBucket: Sendable, Hashable {
-    public let hourLocal: String
-    public let hourStart: Date
+public enum Granularity: String, Sendable, CaseIterable, Hashable {
+    case hour
+    case day
+
+    var view: String { self == .hour ? "v_hourly" : "v_daily" }
+    var keyColumn: String { self == .hour ? "hour_local" : "day_local" }
+    var epochColumn: String { self == .hour ? "hour_start_epoch" : "day_start_epoch" }
+    public var displayName: String { self == .hour ? "小時" : "日" }
+}
+
+/// 分桶消耗。小時與日共用同一型別 —— 兩者的欄位語意完全相同，
+/// 分成兩種型別只會讓圖表程式碼寫兩份。
+public struct UsageBucket: Sendable, Hashable {
+    public let key: String
+    public let start: Date
     public let usedPercent: Double?
     public let unknownPercent: Double?
-    /// 這一小時由幾組相鄰樣本推導而來。數字太小代表該小時取樣稀疏，數值可信度較低。
+    /// 這個桶由幾組相鄰樣本推導而來。數字太小代表取樣稀疏，數值可信度較低。
     public let pairCount: Int
     public let unattributedPairs: Int
+}
+
+/// 單次取樣嘗試的結果，供視窗上的日誌顯示。
+public struct RecentFetch: Sendable, Hashable, Identifiable {
+    public let id: Int64
+    public let service: Service
+    public let completedAt: Date
+    public let ok: Bool
+    public let httpStatus: Int?
+    public let errorKind: String?
+    public let errorDetail: String?
+    /// 該次取樣得到的週用量。失敗時為 nil。
+    public let weeklyPercent: Double?
 }
 
 public struct Health: Sendable, Hashable {
@@ -199,26 +224,63 @@ public final class UsageDatabase: Sendable {
         }
     }
 
-    public func hourly(service: Service, windowKind: String = "weekly", since: Date) throws -> [HourlyBucket] {
+    public func buckets(
+        service: Service,
+        windowKind: String = "weekly",
+        granularity: Granularity,
+        since: Date
+    ) throws -> [UsageBucket] {
         try pool.read { db in
             try Row.fetchAll(
                 db,
                 sql: """
-                SELECT hour_local, hour_start_epoch, used_percent, unknown_percent,
-                       pair_count, unattributed_pairs
-                  FROM v_hourly
-                 WHERE service = ? AND window_kind = ? AND hour_start_epoch >= ?
-                 ORDER BY hour_start_epoch
+                SELECT \(granularity.keyColumn) AS bucket_key,
+                       \(granularity.epochColumn) AS bucket_start,
+                       used_percent, unknown_percent, pair_count, unattributed_pairs
+                  FROM \(granularity.view)
+                 WHERE service = ? AND window_kind = ? AND \(granularity.epochColumn) >= ?
+                 ORDER BY bucket_start
                 """,
                 arguments: [service.rawValue, windowKind, Int(since.timeIntervalSince1970)]
             ).map { row in
-                HourlyBucket(
-                    hourLocal: row["hour_local"],
-                    hourStart: Date(timeIntervalSince1970: TimeInterval(row["hour_start_epoch"] as Int)),
+                UsageBucket(
+                    key: row["bucket_key"],
+                    start: Date(timeIntervalSince1970: TimeInterval(row["bucket_start"] as Int)),
                     usedPercent: row["used_percent"],
                     unknownPercent: row["unknown_percent"],
                     pairCount: row["pair_count"] ?? 0,
                     unattributedPairs: row["unattributed_pairs"] ?? 0
+                )
+            }
+        }
+    }
+
+    /// 最近的取樣嘗試，成功與失敗都包含 —— 日誌的價值就在於看得到失敗。
+    public func recentFetches(limit: Int = 10) throws -> [RecentFetch] {
+        try pool.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                SELECT f.id, f.service, f.completed_at, f.ok, f.http_status,
+                       f.error_kind, f.error_detail,
+                       (SELECT s.percent FROM sample s
+                         WHERE s.fetch_id = f.id AND s.window_kind = 'weekly' LIMIT 1) AS weekly_percent
+                  FROM fetch f
+                 ORDER BY f.completed_at DESC, f.id DESC
+                 LIMIT ?
+                """,
+                arguments: [limit]
+            ).compactMap { row in
+                guard let service = Service(rawValue: row["service"]) else { return nil }
+                return RecentFetch(
+                    id: row["id"],
+                    service: service,
+                    completedAt: Date(timeIntervalSince1970: TimeInterval(row["completed_at"] as Int)),
+                    ok: (row["ok"] as Int) == 1,
+                    httpStatus: row["http_status"],
+                    errorKind: row["error_kind"],
+                    errorDetail: row["error_detail"],
+                    weeklyPercent: row["weekly_percent"]
                 )
             }
         }

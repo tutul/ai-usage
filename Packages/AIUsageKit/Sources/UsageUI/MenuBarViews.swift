@@ -7,12 +7,16 @@ public struct MenuBarContent: View {
     let onRefresh: () -> Void
     let onOpenHistory: () -> Void
 
+    let launchAtLogin: LaunchAtLogin
+
     public init(
         model: UsageViewModel,
+        launchAtLogin: LaunchAtLogin,
         onRefresh: @escaping () -> Void,
         onOpenHistory: @escaping () -> Void
     ) {
         self.model = model
+        self.launchAtLogin = launchAtLogin
         self.onRefresh = onRefresh
         self.onOpenHistory = onOpenHistory
     }
@@ -27,6 +31,31 @@ public struct MenuBarContent: View {
 
             if let error = model.loadError {
                 Text(error).font(.caption).foregroundStyle(.red).lineLimit(2)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 3) {
+                Toggle("開機時自動啟動", isOn: Binding(
+                    get: { launchAtLogin.isEnabled },
+                    set: { launchAtLogin.setEnabled($0) }
+                ))
+                .toggleStyle(.checkbox)
+                .font(.callout)
+                .onAppear { launchAtLogin.refresh() }
+
+                // app 沒在跑就完全沒資料 —— 這是比休眠更大的缺口來源
+                if launchAtLogin.needsApproval {
+                    Text("需在「系統設定 → 一般 → 登入項目」中允許")
+                        .font(.caption2).foregroundStyle(.orange)
+                } else if launchAtLogin.isEnabled && !launchAtLogin.isInApplicationsFolder {
+                    Text("建議把 app 搬到 /Applications，否則建置目錄一清就失效")
+                        .font(.caption2).foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let error = launchAtLogin.errorMessage {
+                    Text(error).font(.caption2).foregroundStyle(.red).lineLimit(2)
+                }
             }
 
             Divider()

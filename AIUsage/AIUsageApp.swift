@@ -50,6 +50,7 @@ final class AppState {
 @main
 struct AIUsageApp: App {
     @State private var state = AppState()
+    @State private var launchAtLogin = LaunchAtLogin()
     @Environment(\.openWindow) private var openWindow
 
     /// LSUIElement app 的 activation policy 是 .accessory，
@@ -78,6 +79,7 @@ struct AIUsageApp: App {
             if let model = state.model {
                 MenuBarContent(
                     model: model,
+                    launchAtLogin: launchAtLogin,
                     onRefresh: { state.refreshNow() },
                     onOpenHistory: { showHistory() }
                 )
@@ -108,6 +110,6 @@ struct AIUsageApp: App {
                 Text(state.startupError ?? "尚未就緒").padding()
             }
         }
-        .defaultSize(width: 640, height: 460)
+        .defaultSize(width: 700, height: 640)
     }
 }
