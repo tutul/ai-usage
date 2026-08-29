@@ -21,7 +21,7 @@
 
 資料累積起點：2026-08-28 22:32:40，目前 724 筆樣本。
 測試：28 個，`cd Packages/AIUsageKit && swift test`。
-Migration：001–005 已套用。
+Migration：001–006 已套用。
 
 ## 已知限制（設計上接受的）
 

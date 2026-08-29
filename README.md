@@ -130,3 +130,7 @@ cd Packages/AIUsageKit && swift test    # 28 個測試，不需啟動 app
   精確用量請讀 `v_window_summary.used_percent`（不經 delta 推導）。
 - **本地時區分桶由讀取端 TZ 決定**，跨時區讀同一個 DB 會得到不同分桶。
 - **Gemini 未支援** —— 其配額是每日請求數，weekly % 這個指標不存在。
+
+## 授權
+
+[MIT](LICENSE)。可自由使用、修改、散布，**須保留著作權聲明與授權條款**。

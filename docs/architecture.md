@@ -160,7 +160,9 @@ OpenAI 客服說法：「weekly window starts at the first message you send」�
 | Codex | `~/.codex/auth.json` | ChatGPT.app 負責，本 app **唯讀不寫回** |
 
 Claude 續期端點：`POST platform.claude.com/v1/oauth/token`，
-client_id `9d1c250a-e61b-44d9-88ed-5944d1962f5e`。
+client_id `9d1c250a-e61b-44d9-88ed-5944d1962f5e`（從 CLI 執行檔取得的
+OAuth public client，非機密）。**此值目前寫死，屬單點故障** ——
+官方輪替後續期會永久失敗且顯示為 auth 錯誤，見 [TODO.md](TODO.md) #2。
 
 ## App 組態
 

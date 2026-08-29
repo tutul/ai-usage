@@ -16,6 +16,9 @@ import UsageCore
 /// 只替換 oauth 欄位 —— 否則會弄壞 `claude` CLI 的登入狀態。
 public actor ClaudeCredentialSource: CredentialSource {
     public static let tokenEndpoint = URL(string: "https://platform.claude.com/v1/oauth/token")!
+    /// 從 `claude` CLI 執行檔 `strings` 取得。OAuth public client，非機密，
+    /// 但**寫死是單點故障** —— 官方輪替後續期會永久失敗。
+    /// 待改為可覆寫／自動取得，見 docs/TODO.md #2。
     public static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     /// 提前續期的緩衝，避免剛好在請求途中過期。
     static let renewalMargin: TimeInterval = 300
