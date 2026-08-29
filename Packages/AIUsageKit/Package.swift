@@ -17,7 +17,7 @@ let package = Package(
         .target(
             name: "UsageStore",
             dependencies: ["UsageCore", .product(name: "GRDB", package: "GRDB.swift")],
-            resources: [.copy("Resources/schema.sql")]
+            resources: [.copy("Resources")]
         ),
         .target(name: "UsageUI", dependencies: ["UsageCore", "UsageStore"]),
         .testTarget(name: "UsageCoreTests", dependencies: ["UsageCore"]),

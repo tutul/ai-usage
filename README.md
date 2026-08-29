@@ -60,14 +60,26 @@ sqlite3 "$HOME/Library/Application Support/AIUsage/usage.sqlite" \
 | `v_hourly` / `v_daily` | 分桶消耗，`used` 與 `unknown` 分離 |
 | `v_sample_delta` | 每組相鄰樣本的 delta 與分類（可稽核） |
 | `v_unknown_span` | 不可歸屬的區間（圖表畫斜線帶） |
+| `v_window_seq` | 為每筆樣本標上窗編號（滾動窗恆為 0） |
 | `v_window_summary` | 每個限額窗的實際用量（**不經 delta 推導，最精確**） |
 | `v_health` | 取樣健康度，含 `last_weekly_at` |
 
 ⚠️ **DB 檔不可放在 iCloud Drive / Dropbox / 網路磁碟** —— WAL 依賴 shared memory。
 
+⚠️ **不要用 `cp` 複製資料庫** —— WAL 模式下最新資料在 `-wal` 檔裡，
+`cp` 只會拿到已 checkpoint 的舊資料（實測差了 4 小時）。要複製請用：
+
+```bash
+sqlite3 "$HOME/Library/Application Support/AIUsage/usage.sqlite" ".backup /tmp/snapshot.sqlite"
+```
+
+直接用 `sqlite3` 開原檔查詢則沒有這個問題。
+
 ## 已知限制
 
 - 沒有樣本的小時**不會產生任何列**。無資料 ≠ 0，圖表據此斷線。
 - Codex 的 `used_percent` 是整數（解析度 1%），小時層級偏粗，日／週才有意義。
+- **Codex 是滾動窗**（`reset_at` 恆為「現在 + 7 天」），沒有「重置」這個事件，
+  故 UI 顯示「滾動 7 天」而非倒數。Claude 才是固定邊界窗，會顯示真實倒數。
 - 取樣用 `NSBackgroundActivityScheduler`，有 tolerance，**不保證每小時都有樣本**。
 - delta 加總是近似值（百分比下修時會夾擠為 0）；精確週用量請讀 `v_window_summary.used_percent`。

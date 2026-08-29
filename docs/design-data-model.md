@@ -13,6 +13,8 @@
 | 時間分桶 | **本地時區**（透過 `'localtime'` modifier，由讀取端的 TZ 決定）。你在 UTC+8 且無日光節約，桶邊界穩定 |
 | 百分比 | `REAL`，0..100。Codex 實際只給整數，Claude 給 float |
 | 窗身分 | 以 `resets_at` 識別。**不以百分比下降推測重置**（已於真實資料驗證：曾觀測到 2%→0% 且 `resets_at` 換號的週窗轉換） |
+| 窗身分 policy | **兩家 provider 的窗語意根本不同**，見下節。以 `window_policy` 表明確記錄，不靠推測 |
+| Migration | `Resources/NNN_name.sql`，依檔名順序註冊。**已套用的檔案不得再修改** —— 既有資料庫不會重跑它 |
 | 窗別判定 | 以 `limit_window_seconds` 對應：`604800`→`weekly`、`18000`→`session`、其他→`other` 並保留原始秒數。**絕不以 `primary`/`secondary` 欄位位置判定** |
 | Schema 契約 | `meta.schema_version`。變更一律走 migration |
 
@@ -73,6 +75,34 @@
 - **`v_health`** — `last_success_at` / `last_attempt_at` / `failures_total` /
   **`last_weekly_at`**（週樣本的新鮮度直接量在 `sample` 上）。
   HTTP 成功不等於拿到週用量 —— 窗可能換位或消失，故兩者分開度量，不以 `fetch.ok` 兼表。
+
+## 窗語意：兩家 provider 完全不同（實測 180 筆樣本）
+
+```
+codex  weekly   resets_at - observed_at  恆為 604800（= window_seconds）
+codex  session  resets_at - observed_at  恆為 18000
+claude weekly   remain 由 382400 遞減至 332007，resets_at 固定
+```
+
+**Codex 回報的是滾動窗**：`reset_at` 永遠是「現在 + 窗長」，不帶任何窗身分資訊。
+**Claude 才是固定邊界窗**，`resets_at` 為真實的重置時刻（秒級有 ±1s 抖動）。
+
+| policy | 判定方式 | delta 規則 |
+|---|---|---|
+| `fixed_reset`（Claude） | `resets_at` 差異超過 `reset_tolerance_seconds`(120) 才算換窗 | 換窗時 delta = 當前百分比 |
+| `rolling`（Codex） | **永不換窗** | 上升為新消耗；下降是舊消耗滑出窗外，標為 `decay`，delta = 0 |
+
+### 這兩件事在真實資料上造成的實際損害
+
+1. **Claude 的 ±1s 抖動**：以 `resets_at` 精確比對，同一週窗被判成 49 次重置，
+   每次 delta = 當前百分比（約 54%）→ 累積 **2641% 的假 delta**，小時桶出現 270%、日桶 2106%。
+2. **Codex 的滾動 `reset_at`**：每次取樣都被判成換窗，123 個假窗。
+
+兩者的原始樣本都**完全正確** —— 錯的只有推導層，改 view 即可，不需修任何資料。
+這是「存原始樣本、查詢時才推導」這個決定的直接回報。
+
+⚠️ 這類問題**只有真實資料會浮現**。原本的 fixture 用乾淨的整數 `resets_at`，
+永遠測不出抖動；用固定的 `resets_at` 也測不出滾動窗。已補上兩個回歸測試釘住。
 
 ## 已知取捨（誠實記錄）
 

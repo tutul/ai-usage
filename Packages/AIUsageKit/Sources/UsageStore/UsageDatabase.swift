@@ -8,6 +8,10 @@ public struct CurrentReading: Sendable, Hashable {
     public let observedAt: Date
     public let percent: Double
     public let resetsAt: Date?
+    /// 'fixed_reset' | 'rolling'。滾動窗不該顯示重置倒數。
+    public let policy: String
+
+    public var isRolling: Bool { policy == "rolling" }
 }
 
 public struct HourlyBucket: Sendable, Hashable {
@@ -46,16 +50,29 @@ public final class UsageDatabase: Sendable {
             try db.execute(sql: "PRAGMA foreign_keys = ON")
         }
         pool = try DatabasePool(path: url.path, configuration: config)
+        // 早期版本以 "v1" 註冊初始 migration；改為編號檔名後需認得舊紀錄，
+        // 否則既有資料庫會重跑 001 而撞上已存在的表。
+        try pool.write { db in
+            if try db.tableExists("grdb_migrations") {
+                try db.execute(sql: "UPDATE grdb_migrations SET identifier = '001_initial' WHERE identifier = 'v1'")
+            }
+        }
         try Self.migrator.migrate(pool)
     }
 
+    /// Migration 以 `Resources/NNN_name.sql` 的檔名順序註冊。
+    /// 已套用過的檔案**不得再修改** —— 既有資料庫不會重跑它。
+    /// 要改 schema 或 view，新增下一個編號的檔案。
     static var migrator: DatabaseMigrator {
         var migrator = DatabaseMigrator()
-        migrator.registerMigration("v1") { db in
-            guard let url = Bundle.module.url(forResource: "schema", withExtension: "sql") else {
-                fatalError("schema.sql 未包含在 bundle 中")
+        let urls = (Bundle.module.urls(forResourcesWithExtension: "sql", subdirectory: "Resources") ?? [])
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        precondition(!urls.isEmpty, "找不到 migration SQL，Resources 未被打包進 bundle")
+        for url in urls {
+            let name = url.deletingPathExtension().lastPathComponent
+            migrator.registerMigration(name) { db in
+                try db.execute(sql: String(contentsOf: url, encoding: .utf8))
             }
-            try db.execute(sql: String(contentsOf: url, encoding: .utf8))
         }
         return migrator
     }
@@ -172,7 +189,8 @@ public final class UsageDatabase: Sendable {
                     windowKind: row["window_kind"],
                     observedAt: Date(timeIntervalSince1970: TimeInterval(row["observed_at"] as Int)),
                     percent: row["percent"],
-                    resetsAt: resets.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+                    resetsAt: resets.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                    policy: row["policy"] ?? "fixed_reset"
                 )
             }
         }
