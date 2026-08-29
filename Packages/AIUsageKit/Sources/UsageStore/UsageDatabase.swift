@@ -19,6 +19,8 @@ public struct HourlyBucket: Sendable, Hashable {
     public let hourStart: Date
     public let usedPercent: Double?
     public let unknownPercent: Double?
+    /// 這一小時由幾組相鄰樣本推導而來。數字太小代表該小時取樣稀疏，數值可信度較低。
+    public let pairCount: Int
     public let unattributedPairs: Int
 }
 
@@ -202,7 +204,8 @@ public final class UsageDatabase: Sendable {
             try Row.fetchAll(
                 db,
                 sql: """
-                SELECT hour_local, hour_start_epoch, used_percent, unknown_percent, unattributed_pairs
+                SELECT hour_local, hour_start_epoch, used_percent, unknown_percent,
+                       pair_count, unattributed_pairs
                   FROM v_hourly
                  WHERE service = ? AND window_kind = ? AND hour_start_epoch >= ?
                  ORDER BY hour_start_epoch
@@ -214,6 +217,7 @@ public final class UsageDatabase: Sendable {
                     hourStart: Date(timeIntervalSince1970: TimeInterval(row["hour_start_epoch"] as Int)),
                     usedPercent: row["used_percent"],
                     unknownPercent: row["unknown_percent"],
+                    pairCount: row["pair_count"] ?? 0,
                     unattributedPairs: row["unattributed_pairs"] ?? 0
                 )
             }
