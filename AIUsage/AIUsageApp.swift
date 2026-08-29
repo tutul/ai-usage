@@ -47,13 +47,34 @@ struct AIUsageApp: App {
     @State private var state = AppState()
     @Environment(\.openWindow) private var openWindow
 
+    /// LSUIElement app 的 activation policy 是 .accessory，
+    /// 開視窗**不會**讓 app 變成前景 —— 視窗會開在其他 app 後面，使用者得自己去找。
+    /// 因此必須明確要求 activation，並把視窗 order front。
+    /// 視窗可能在這一輪 runloop 尚未建立，故延到下一輪再抓一次。
+    @MainActor
+    private func showHistory() {
+        openWindow(id: "history")
+        NSApp.activate()
+        DispatchQueue.main.async {
+            NSApp.activate()
+            historyWindow()?.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    @MainActor
+    private func historyWindow() -> NSWindow? {
+        NSApp.windows.first { window in
+            window.identifier?.rawValue.contains("history") == true || window.title == "用量歷史"
+        }
+    }
+
     var body: some Scene {
         MenuBarExtra {
             if let model = state.model {
                 MenuBarContent(
                     model: model,
                     onRefresh: { state.refreshNow() },
-                    onOpenHistory: { openWindow(id: "history") }
+                    onOpenHistory: { showHistory() }
                 )
             } else {
                 VStack(alignment: .leading, spacing: 8) {
