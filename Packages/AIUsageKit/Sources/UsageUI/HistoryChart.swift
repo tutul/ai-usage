@@ -11,21 +11,25 @@ import UsageStore
 ///    視覺上可區分，不可混為同一種量
 public struct HistoryChartView: View {
     let model: UsageViewModel
-    @State private var service: Service = .claude
-    @State private var hovered: HourlyBucket?
+    /// 重新取樣（而非只是重讀資料庫）—— 使用者按重新整理時想看的是「現在的用量」，
+    /// 只重讀 DB 在沒有新樣本時什麼都不會變。
+    let onRefresh: () async -> Void
 
-    public init(model: UsageViewModel) { self.model = model }
+    @State private var service: Service = .claude
+    @State private var hoveredHour: Date?
+    @State private var isRefreshing = false
+    @Environment(\.appearsActive) private var appearsActive
+
+    public init(model: UsageViewModel, onRefresh: @escaping () async -> Void) {
+        self.model = model
+        self.onRefresh = onRefresh
+    }
 
     var buckets: [HourlyBucket] { model.hourly[service] ?? [] }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Picker("服務", selection: $service) {
-                ForEach(Service.allCases, id: \.self) { Text($0.displayName).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .onChange(of: service) { hovered = nil }
+            header
 
             if buckets.isEmpty {
                 ContentUnavailableView(
@@ -45,42 +49,127 @@ public struct HistoryChartView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
+        .onChange(of: appearsActive) { _, active in
+            // 切回這個視窗時把資料庫最新狀態畫出來 —— 背景取樣期間視窗可能一直開著
+            if active { model.reload() }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .frame(minWidth: 560, minHeight: 400)
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Picker("服務", selection: $service) {
+                ForEach(Service.allCases, id: \.self) { Text($0.displayName).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .onChange(of: service) { hoveredHour = nil }
+
+            Spacer()
+
+            Text(model.staleness(service))
+                .font(.caption)
+                .foregroundStyle(model.needsAttention(service) ? .orange : .secondary)
+
+            Button {
+                Task {
+                    isRefreshing = true
+                    await onRefresh()
+                    isRefreshing = false
+                }
+            } label: {
+                if isRefreshing {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                }
+            }
+            .buttonStyle(.borderless)
+            .disabled(isRefreshing)
+            .help("重新取樣並更新圖表")
+        }
+    }
+
+    /// 依資料跨度決定 X 軸刻度密度。原本固定 6 小時一格，長條細又對不上時間。
+    private var axisStrideHours: Int {
+        guard let first = buckets.first?.hourStart, let last = buckets.last?.hourStart else { return 6 }
+        let hours = last.timeIntervalSince(first) / 3600
+        switch hours {
+        case ..<13:  return 1
+        case ..<37:  return 3
+        case ..<97:  return 6
+        default:     return 12
+        }
     }
 
     private var chart: some View {
         Chart {
             ForEach(buckets, id: \.hourLocal) { bucket in
-                if let used = bucket.usedPercent {
+                if let used = bucket.usedPercent, used > 0 {
                     BarMark(
                         x: .value("時間", bucket.hourStart, unit: .hour),
                         y: .value("用量 %", used)
                     )
                     .foregroundStyle(by: .value("類別", "已歸屬"))
-                    .opacity(dimmed(bucket) ? 0.35 : 1)
                 }
-                if let unknown = bucket.unknownPercent {
+                if let unknown = bucket.unknownPercent, unknown > 0 {
                     BarMark(
                         x: .value("時間", bucket.hourStart, unit: .hour),
                         y: .value("用量 %", unknown)
                     )
                     .foregroundStyle(by: .value("類別", "未知區間"))
-                    .opacity(dimmed(bucket) ? 0.2 : 0.45)
                 }
             }
         }
+        // 不再加 opacity —— 先前 0.45 讓橘色在深色背景上變成褐色，與圖例對不起來
         .chartForegroundStyleScale([
             "已歸屬": Color.accentColor,
             "未知區間": Color.orange
         ])
         .chartLegend(position: .top, alignment: .leading)
-        // 指示線與提示框自己畫，不用 RuleMark + annotation ——
-        // 單參數的 RuleMark(x:) 會被解析成 3D 圖表的多載，且位置較難控制。
+        .chartXAxis {
+            AxisMarks(values: .stride(by: .hour, count: axisStrideHours)) { value in
+                AxisGridLine()
+                AxisTick()
+                if let date = value.as(Date.self) {
+                    AxisValueLabel {
+                        // 午夜額外標日期，否則跨日時分不清哪一天
+                        let isMidnight = Calendar.current.component(.hour, from: date) == 0
+                        Text(date, format: isMidnight
+                             ? .dateTime.month(.defaultDigits).day()
+                             : .dateTime.hour())
+                            .font(.caption2)
+                            .fontWeight(isMidnight ? .semibold : .regular)
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let v = value.as(Double.self) { Text("\(Int(v))%").font(.caption2) }
+                }
+            }
+        }
         .chartOverlay { proxy in
             GeometryReader { geometry in
                 if let plotFrame = proxy.plotFrame {
                     let rect = geometry[plotFrame]
                     ZStack(alignment: .topLeading) {
+                        // 先畫高亮帶，讓「現在選到哪一小時」一眼可見
+                        if let hour = hoveredHour,
+                           let x0 = proxy.position(forX: hour),
+                           let x1 = proxy.position(forX: hour.addingTimeInterval(3600)) {
+                            Rectangle()
+                                .fill(Color.secondary.opacity(0.18))
+                                .frame(width: max(x1 - x0, 4), height: rect.height)
+                                .position(x: rect.minX + (x0 + x1) / 2, y: rect.midY)
+                                .allowsHitTesting(false)
+                        }
+
                         Rectangle()
                             .fill(.clear)
                             .contentShape(Rectangle())
@@ -89,24 +178,22 @@ public struct HistoryChartView: View {
                                 case .active(let location):
                                     guard rect.contains(location),
                                           let date = proxy.value(atX: location.x - rect.minX, as: Date.self)
-                                    else { hovered = nil; return }
-                                    hovered = nearestBucket(to: date)
+                                    else { hoveredHour = nil; return }
+                                    // 直接取游標所在的整點 —— 不用「最近的長條」，
+                                    // 那會讓游標停在空白處時跳到遠處的長條，行為無法預期
+                                    hoveredHour = Calendar.current.dateInterval(of: .hour, for: date)?.start
                                 case .ended:
-                                    hovered = nil
+                                    hoveredHour = nil
                                 }
                             }
 
-                        if let hovered, let offset = proxy.position(forX: hovered.hourStart) {
-                            let x = rect.minX + offset
-                            Rectangle()
-                                .fill(Color.secondary.opacity(0.4))
-                                .frame(width: 1, height: rect.height)
-                                .position(x: x, y: rect.midY)
-                            tooltip(hovered)
+                        if let hour = hoveredHour, let x0 = proxy.position(forX: hour) {
+                            let x = rect.minX + x0
+                            tooltip(hour, bucket: bucket(for: hour))
                                 .frame(width: tooltipWidth)
                                 .position(
                                     x: min(max(x, rect.minX + tooltipWidth / 2), rect.maxX - tooltipWidth / 2),
-                                    y: rect.minY + 52
+                                    y: rect.minY + 48
                                 )
                                 .allowsHitTesting(false)
                         }
@@ -117,40 +204,36 @@ public struct HistoryChartView: View {
         .frame(height: 260)
     }
 
-    private var tooltipWidth: CGFloat { 180 }
+    private var tooltipWidth: CGFloat { 190 }
 
-    private func dimmed(_ bucket: HourlyBucket) -> Bool {
-        hovered != nil && hovered?.hourLocal != bucket.hourLocal
-    }
-
-    /// 只在游標落在該小時格內時才選中 —— 超過半小時就不算，
-    /// 否則游標停在空白處也會顯示遠處某根長條的數字，那是誤導。
-    private func nearestBucket(to date: Date) -> HourlyBucket? {
-        buckets
-            .min { abs($0.hourStart.timeIntervalSince(date)) < abs($1.hourStart.timeIntervalSince(date)) }
-            .flatMap { abs($0.hourStart.timeIntervalSince(date)) <= 1800 ? $0 : nil }
+    /// 該整點是否有樣本。沒有就是沒有 —— 不去找「最近的」湊數。
+    private func bucket(for hour: Date) -> HourlyBucket? {
+        buckets.first { abs($0.hourStart.timeIntervalSince(hour)) < 60 }
     }
 
     @ViewBuilder
-    private func tooltip(_ bucket: HourlyBucket) -> some View {
+    private func tooltip(_ hour: Date, bucket: HourlyBucket?) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(bucket.hourStart, format: .dateTime.month().day().hour())
+            Text(hour, format: .dateTime.month().day().hour())
                 .font(.caption.weight(.semibold))
-            if let used = bucket.usedPercent {
-                row("已歸屬", value: used, color: .accentColor)
+            if let bucket {
+                if let used = bucket.usedPercent, used > 0 {
+                    row("已歸屬", value: used, color: .accentColor)
+                }
+                if let unknown = bucket.unknownPercent, unknown > 0 {
+                    row("未知區間", value: unknown, color: .orange)
+                    Text("取樣中斷，無法歸屬到特定小時")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                if (bucket.usedPercent ?? 0) == 0 && (bucket.unknownPercent ?? 0) == 0 {
+                    Text("有取樣，用量無變化").font(.caption2).foregroundStyle(.secondary)
+                }
+                Text("\(bucket.pairCount) 筆取樣")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            } else {
+                // 無資料 ≠ 0，必須講清楚是哪一種
+                Text("此小時無取樣").font(.caption2).foregroundStyle(.secondary)
             }
-            if let unknown = bucket.unknownPercent {
-                row("未知區間", value: unknown, color: .orange)
-                Text("取樣中斷，無法歸屬到特定小時")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            if bucket.usedPercent == nil && bucket.unknownPercent == nil {
-                Text("無用量變化").font(.caption2).foregroundStyle(.secondary)
-            }
-            Text("\(bucket.pairCount) 筆取樣")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
         }
         .padding(8)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))

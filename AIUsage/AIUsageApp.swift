@@ -40,6 +40,11 @@ final class AppState {
     func refreshNow() {
         Task { await sampler?.sampleAll() }
     }
+
+    /// 供 UI await 的版本，讓按鈕能正確顯示進行中狀態。
+    func refresh() async {
+        await sampler?.sampleAll()
+    }
 }
 
 @main
@@ -97,7 +102,7 @@ struct AIUsageApp: App {
 
         Window("用量歷史", id: "history") {
             if let model = state.model {
-                HistoryChartView(model: model)
+                HistoryChartView(model: model, onRefresh: { await state.refresh() })
                     .task { model.reload() }
             } else {
                 Text(state.startupError ?? "尚未就緒").padding()
