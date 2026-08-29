@@ -60,6 +60,11 @@ enum HTTP {
                 kind: .blocked, httpStatus: 403,
                 detail: "被風控擋下（多為 User-Agent 問題，非認證）：\(body.prefix(120))"
             )
+        case 429:
+            throw FetchFailure(
+                kind: .rateLimited, httpStatus: 429,
+                detail: "被端點限流，下輪自動重試：\(body.prefix(100))"
+            )
         default:
             throw FetchFailure(
                 kind: .http, httpStatus: http.statusCode, detail: String(body.prefix(200))

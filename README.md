@@ -19,9 +19,16 @@
    > 打 `/api/oauth/usage` 會得到
    > `permission_error: OAuth token does not meet scope requirement user:profile`。
 
-   token 續期由 Claude Code 負責，本 app 不寫回。
-   若長期未使用 Claude Code 導致 token 過期，選單會顯示「已過期」，
-   開一次 Claude Code 即可。
+   **本 app 會自行續期**（access token 過期前 5 分鐘用 refresh token 換新的，
+   完整保留原 JSON 結構寫回，不破壞 `claude` CLI 的登入狀態）。
+
+   > 為何需要自行續期：`Claude Code-credentials` 這個 Keychain 項目**只有 `claude` CLI 會續**。
+   > Claude 桌面 App 用的是自己的 Electron cookie，完全不碰它。
+   > 若你只用桌面 App，該 token 過期後就再也不會更新 ——
+   > Claude 追蹤等於永久停擺，而非偶爾有 gap。
+
+   續期端點若回 429，會退避 15 分鐘再試（不持續敲認證端點）。
+   refresh token 本身也會過期（約 30 天），屆時需 `claude auth login`。
 
 ## 建置與執行
 

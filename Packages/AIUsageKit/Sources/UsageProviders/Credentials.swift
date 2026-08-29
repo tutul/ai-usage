@@ -3,7 +3,7 @@ import Security
 import UsageCore
 
 public protocol CredentialSource: Sendable {
-    func accessToken() throws -> String
+    func accessToken() async throws -> String
 }
 
 /// Codex：**唯讀** `~/.codex/auth.json`，續期交給 ChatGPT.app。
@@ -34,6 +34,6 @@ public struct CodexCredentialSource: CredentialSource {
         }
     }
 
-    public func accessToken() throws -> String { try payload().tokens.access_token }
+    public func accessToken() async throws -> String { try payload().tokens.access_token }
     public func accountID() throws -> String? { try payload().tokens.account_id }
 }

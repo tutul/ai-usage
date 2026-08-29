@@ -21,6 +21,7 @@ let package = Package(
         ),
         .target(name: "UsageUI", dependencies: ["UsageCore", "UsageStore"]),
         .testTarget(name: "UsageCoreTests", dependencies: ["UsageCore"]),
+        .testTarget(name: "UsageProvidersTests", dependencies: ["UsageProviders", "UsageCore"]),
         .testTarget(name: "UsageStoreTests", dependencies: ["UsageStore", "UsageCore"])
     ]
 )

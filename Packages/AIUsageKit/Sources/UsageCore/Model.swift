@@ -82,6 +82,8 @@ public struct UsageSnapshot: Sendable {
 public enum FetchErrorKind: String, Sendable {
     case auth
     case blocked
+    /// 端點限流（含 OAuth 續期端點）。暫時性，下輪會自動重試。
+    case rateLimited = "rate_limited"
     case network
     case http
     case parse

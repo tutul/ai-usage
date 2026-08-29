@@ -19,7 +19,7 @@ public struct ClaudeProvider: UsageProvider {
 
     public func fetch() async throws -> UsageSnapshot {
         var request = URLRequest(url: endpoint)
-        request.setValue("Bearer \(try credentials.accessToken())", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(try await credentials.accessToken())", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue(userAgent.value, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -46,7 +46,7 @@ public struct CodexProvider: UsageProvider {
 
     public func fetch() async throws -> UsageSnapshot {
         var request = URLRequest(url: endpoint)
-        request.setValue("Bearer \(try credentials.accessToken())", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(try await credentials.accessToken())", forHTTPHeaderField: "Authorization")
         if let account = try credentials.accountID() {
             request.setValue(account, forHTTPHeaderField: "chatgpt-account-id")
         }

@@ -61,7 +61,8 @@ public final class UsageViewModel {
     /// 憑證過期是**良性**停擺：開一次對應的 app 就好，不是壞掉。
     /// 不該和「取樣真的失敗」用同一種警示強度 —— 狼來了喊多了就沒人看。
     public func isBenignStale(_ service: Service) -> Bool {
-        failures[service]?.kind == "auth"
+        guard let kind = failures[service]?.kind else { return false }
+        return kind == "auth" || kind == "rate_limited"
     }
 
     /// 需要你注意的停擺（排除良性者）。
