@@ -56,6 +56,7 @@ open .build/xcode/Build/Products/Debug/AIUsage.app
 | User-Agent 沒帶對 | Claude 落入嚴格限流桶持續 429；Codex 被 Cloudflare 擋成 403 HTML | UA 是承載性的，見 `UserAgent` |
 | 以欄位位置認窗 | 5 小時的數字被靜默寫進 weekly 序列 | 一律以 `limit_window_seconds` 判定 |
 | 在「零用量」資料上推論窗行為 | 得出「滾動窗」的錯誤結論 | 推論前先問：資料涵蓋了要推論的變項變化嗎 |
+| `WHERE` 濾掉了要觀察的現象 | 門檻掃描加了 `kind='ok'`，睡眠長間隔全被排除 | 同上，但**自己下的過濾條件也算**一種資料範圍 |
 | 對「時間桶」查 `used_percent > 100` | 誤報 —— 一天含約 4.8 個 5 小時窗，session 日桶超過 100 是正常的 | 不變量在**單一窗**，不在時間桶。查 `v_window_summary` |
 
 ## 驗證要求
