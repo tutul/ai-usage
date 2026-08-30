@@ -56,6 +56,7 @@ open .build/xcode/Build/Products/Debug/AIUsage.app
 | User-Agent 沒帶對 | Claude 落入嚴格限流桶持續 429；Codex 被 Cloudflare 擋成 403 HTML | UA 是承載性的，見 `UserAgent` |
 | 以欄位位置認窗 | 5 小時的數字被靜默寫進 weekly 序列 | 一律以 `limit_window_seconds` 判定 |
 | 在「零用量」資料上推論窗行為 | 得出「滾動窗」的錯誤結論 | 推論前先問：資料涵蓋了要推論的變項變化嗎 |
+| 對「時間桶」查 `used_percent > 100` | 誤報 —— 一天含約 4.8 個 5 小時窗，session 日桶超過 100 是正常的 | 不變量在**單一窗**，不在時間桶。查 `v_window_summary` |
 
 ## 驗證要求
 
@@ -68,8 +69,9 @@ open .build/xcode/Build/Products/Debug/AIUsage.app
 ```bash
 sqlite3 "$HOME/Library/Application Support/AIUsage/usage.sqlite" ".backup /tmp/v.sqlite"
 sqlite3 /tmp/v.sqlite ".read Packages/AIUsageKit/Sources/UsageStore/Resources/00N_xxx.sql"
-# 健全性：不該有超過 100 的桶
-sqlite3 /tmp/v.sqlite "SELECT COUNT(*) FROM v_hourly WHERE used_percent > 100 OR unknown_percent > 100;"
+# 健全性：任一「窗」的用量不得超過 100（這才是不變量，都應為 0）
+sqlite3 /tmp/v.sqlite "SELECT COUNT(*) FROM v_window_summary WHERE used_percent > 100 OR peak_percent > 100;"
+sqlite3 /tmp/v.sqlite "SELECT COUNT(*) FROM v_hourly WHERE window_kind='weekly' AND used_percent > 100;"
 # 對帳：delta 加總應等於該窗百分比的實際變化
 ```
 
