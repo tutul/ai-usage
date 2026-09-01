@@ -34,6 +34,9 @@ public actor ClaudeCredentialSource: CredentialSource {
     /// 續期失敗後的封鎖截止時間。actor 隔離，不需額外鎖。
     private var renewalBlockedUntil: Date?
 
+    /// 續期的併發合流。見 `SingleFlight` 與 `renewCoalesced`。
+    private let renewalFlight = SingleFlight<String>()
+
     let fileURL: URL
     let keychainService: String
     let userAgent: UserAgent
@@ -52,8 +55,8 @@ public actor ClaudeCredentialSource: CredentialSource {
     }
 
     public func accessToken() async throws -> String {
-        var credentials = try loadCredentials()
-        guard var oauth = credentials["claudeAiOauth"] as? [String: Any],
+        let credentials = try loadCredentials()
+        guard let oauth = credentials["claudeAiOauth"] as? [String: Any],
               let token = oauth["accessToken"] as? String
         else { throw FetchFailure(kind: .auth, detail: "Claude 憑證格式非預期：缺少 claudeAiOauth.accessToken") }
 
@@ -77,6 +80,21 @@ public actor ClaudeCredentialSource: CredentialSource {
             )
         }
 
+        return try await renewCoalesced(refreshToken: refreshToken)
+    }
+
+    /// 續期走 `SingleFlight`：進行中時，後到的呼叫等同一個結果，不各自送一次請求。
+    ///
+    /// 實測（2026-09-01 20:16）啟動時兩次取樣同時觸發續期，伺服器讓先到的那次輪替，
+    /// 後到的拿到 `invalid_grant`。那次只是取樣失敗，但**若伺服器對舊 token 有寬限期而
+    /// 兩次都成功，就會有兩把新 token 各自寫回、其中一把是舊的 —— 下次續期永久失敗**。
+    func renewCoalesced(refreshToken: String) async throws -> String {
+        try await renewalFlight.run { try await self.performRenewal(refreshToken: refreshToken) }
+    }
+
+    /// 續期後**重新載入憑證再寫回**，而不是沿用呼叫端的快照 ——
+    /// 網路往返期間別的欄位可能已經變了，用舊快照寫回會把它們蓋掉。
+    func performRenewal(refreshToken: String) async throws -> String {
         let renewed: Renewal
         do {
             renewed = try await requestRenewal(refreshToken: refreshToken)
@@ -94,6 +112,10 @@ public actor ClaudeCredentialSource: CredentialSource {
             "renewal ok — response_has_refresh_token=\(returned, privacy: .public) rotated=\(rotated, privacy: .public)"
         )
 
+        var credentials = try loadCredentials()
+        guard var oauth = credentials["claudeAiOauth"] as? [String: Any] else {
+            throw FetchFailure(kind: .auth, detail: "續期成功但憑證格式非預期：缺少 claudeAiOauth")
+        }
         oauth["accessToken"] = renewed.accessToken
         oauth["refreshToken"] = renewed.refreshToken ?? refreshToken
         if let expiresIn = renewed.expiresIn {
