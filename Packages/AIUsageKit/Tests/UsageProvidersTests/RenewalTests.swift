@@ -29,6 +29,16 @@ struct RenewalTests {
         #expect(await source.needsRenewal(oauth(expiresAt: soon)))
     }
 
+    /// 緩衝可注入，是為了在需要時強制一次續期來觀測伺服器行為
+    /// （例如 refresh token 是否輪替），不必等自然到期。
+    @Test("加大緩衝可強制續期；預設緩衝下同一筆憑證不需續期")
+    func injectedMargin() async {
+        let future = Int(Date().addingTimeInterval(1800).timeIntervalSince1970 * 1000)
+        let forcing = ClaudeCredentialSource(renewalMargin: 86_400)
+        #expect(await forcing.needsRenewal(oauth(expiresAt: future)))
+        #expect(await source.needsRenewal(oauth(expiresAt: future)) == false)
+    }
+
     /// expiresAt 可能是毫秒或秒，用量級判斷。搞錯會讓「秒」被當成 1970 年而永遠續期，
     /// 或讓「毫秒」被當成西元 58000 年而永不續期。
     @Test("秒與毫秒兩種單位都判定正確")

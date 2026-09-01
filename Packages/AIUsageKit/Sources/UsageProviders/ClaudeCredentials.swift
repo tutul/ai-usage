@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import os
 import UsageCore
 
 /// Claude 憑證來源，**含自動續期**。
@@ -21,7 +22,12 @@ public actor ClaudeCredentialSource: CredentialSource {
     /// 待改為可覆寫／自動取得，見 docs/TODO.md #2。
     public static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     /// 提前續期的緩衝，避免剛好在請求途中過期。
-    static let renewalMargin: TimeInterval = 300
+    public static let defaultRenewalMargin: TimeInterval = 300
+
+    /// 只記錄「是否輪替」這個布林值，**絕不記 token 本身**。
+    /// 這個答案決定了能不能不寫回 Claude Code 的 Keychain 項目 —— 寫回會清掉
+    /// 該項目的信任應用程式清單，害 Claude Code 每次讀都要重新輸入 login 密碼。
+    static let log = Logger(subsystem: "com.tutu.aiusage", category: "credentials")
     /// 被限流後的冷卻期。取樣每 5 分鐘一次，若不退避就等於持續敲一個認證端點。
     static let renewalCooldown: TimeInterval = 900
 
@@ -31,15 +37,18 @@ public actor ClaudeCredentialSource: CredentialSource {
     let fileURL: URL
     let keychainService: String
     let userAgent: UserAgent
+    let renewalMargin: TimeInterval
 
     public init(
         fileURL: URL = URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".claude/.credentials.json"),
         keychainService: String = "Claude Code-credentials",
-        userAgent: UserAgent = .claude
+        userAgent: UserAgent = .claude,
+        renewalMargin: TimeInterval = ClaudeCredentialSource.defaultRenewalMargin
     ) {
         self.fileURL = fileURL
         self.keychainService = keychainService
         self.userAgent = userAgent
+        self.renewalMargin = renewalMargin
     }
 
     public func accessToken() async throws -> String {
@@ -79,6 +88,12 @@ public actor ClaudeCredentialSource: CredentialSource {
         }
         renewalBlockedUntil = nil
 
+        let returned = renewed.refreshToken != nil
+        let rotated = renewed.refreshToken.map { $0 != refreshToken } ?? false
+        Self.log.notice(
+            "renewal ok — response_has_refresh_token=\(returned, privacy: .public) rotated=\(rotated, privacy: .public)"
+        )
+
         oauth["accessToken"] = renewed.accessToken
         oauth["refreshToken"] = renewed.refreshToken ?? refreshToken
         if let expiresIn = renewed.expiresIn {
@@ -99,7 +114,7 @@ public actor ClaudeCredentialSource: CredentialSource {
             return false  // 沒有到期資訊就不主動續期
         }
         let seconds = raw > 1e11 ? raw / 1000 : raw
-        return Date(timeIntervalSince1970: seconds).timeIntervalSinceNow < Self.renewalMargin
+        return Date(timeIntervalSince1970: seconds).timeIntervalSinceNow < renewalMargin
     }
 
     struct Renewal {
