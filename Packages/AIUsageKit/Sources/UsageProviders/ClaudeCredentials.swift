@@ -192,6 +192,13 @@ public actor ClaudeCredentialSource: CredentialSource {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService
         ]
+
+        // 這個項目是 Claude Code 的，它自己透過 /usr/bin/security 讀。
+        // 直接 SecItemUpdate 會讓該項目的信任應用程式清單只剩下我們，於是 Claude Code
+        // 每次讀都要使用者輸入 login keychain 密碼 —— 而我們約每 8 小時續期一次，
+        // 所以「一律允許」也撐不過下一次。先存下既有清單，寫完再還原。
+        let savedAccess = existingAccess(query: query)
+
         let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         guard status == errSecSuccess else {
             throw FetchFailure(
@@ -200,5 +207,43 @@ public actor ClaudeCredentialSource: CredentialSource {
                       + "若 refresh token 已輪替，需執行 `claude auth login` 重新登入。"
             )
         }
+
+        restore(savedAccess, query: query)
+    }
+
+    /// 讀出項目現有的授權清單。失敗不拋錯 —— 續期本身已經成功，
+    /// 為了保不住 ACL 而讓整次取樣失敗是本末倒置。
+    func existingAccess(query: [String: Any]) -> SecAccess? {
+        var ref: CFTypeRef?
+        var refQuery = query
+        refQuery[kSecReturnRef as String] = true
+        refQuery[kSecMatchLimit as String] = kSecMatchLimitOne
+        guard SecItemCopyMatching(refQuery as CFDictionary, &ref) == errSecSuccess,
+              let item = ref, CFGetTypeID(item) == SecKeychainItemGetTypeID()
+        else {
+            Self.log.notice("acl: 取不到 keychain item ref，寫回後不還原")
+            return nil
+        }
+        var access: SecAccess?
+        let status = SecKeychainItemCopyAccess(item as! SecKeychainItem, &access)
+        if status != errSecSuccess {
+            Self.log.notice("acl: 讀取授權清單失敗（OSStatus \(status, privacy: .public)）")
+        }
+        return access
+    }
+
+    func restore(_ access: SecAccess?, query: [String: Any]) {
+        guard let access else { return }
+        var ref: CFTypeRef?
+        var refQuery = query
+        refQuery[kSecReturnRef as String] = true
+        refQuery[kSecMatchLimit as String] = kSecMatchLimitOne
+        guard SecItemCopyMatching(refQuery as CFDictionary, &ref) == errSecSuccess,
+              let item = ref, CFGetTypeID(item) == SecKeychainItemGetTypeID()
+        else { return }
+        let status = SecKeychainItemSetAccess(item as! SecKeychainItem, access)
+        Self.log.notice(
+            "acl: 還原授權清單 \(status == errSecSuccess ? "成功" : "失敗 OSStatus \(status)", privacy: .public)"
+        )
     }
 }
