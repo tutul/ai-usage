@@ -6,10 +6,10 @@ import UsageStore
 /// 歷史圖表 + 取樣日誌。
 ///
 /// 四種視覺，意義完全不同，不可混淆：
-/// - 藍色長條：該區間有用量
-/// - 橘色長條：未知區間（消耗確實發生，但取樣中斷，無法歸屬）
-/// - 灰色基線：有取樣，但用量無變化
-/// - 完全空白：沒有取樣
+/// - 折線上的大點：該區間有用量
+/// - 折線上貼著 0 的小點：有取樣，但用量無變化
+/// - 線斷開／完全空白：沒有取樣。**不補值、不連過去**
+/// - 橘色長條：未知區間（消耗確實發生，但取樣中斷，無法歸屬到某一格）
 public struct HistoryChartView: View {
     let model: UsageViewModel
     /// 重新取樣（而非只是重讀資料庫）—— 使用者按重新整理時想看的是「現在的用量」，
@@ -47,8 +47,7 @@ public struct HistoryChartView: View {
                 chart
             }
 
-            Text("灰色基線 = 該區間有取樣但用量無變化；完全空白 = 沒有取樣。"
-                 + "「未知區間」表示消耗確實發生，但因取樣中斷而無法歸屬，日與週的彙總仍會計入。")
+            Text("線只連接相鄰且都有取樣的區間，**斷開處代表沒有取樣**，不補值。貼著 0 的小點 = 有取樣但用量沒變。「未知區間」表示消耗確實發生，但因取樣中斷而無法歸屬到某一格，日與週的彙總仍會計入。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -131,48 +130,126 @@ public struct HistoryChartView: View {
         }
     }
 
+    /// 只有「相鄰且都有取樣」的區間才連線；一有中斷就分段。
+    ///
+    /// 折線天生會在兩點之間畫出中間值，而這個專案不憑空補值 —— 所以斷線是刻意的，
+    /// 它就是「這段沒有取樣」的視覺表示。點才是真正的觀測，線只是趨勢。
+    private var segments: [[UsageBucket]] {
+        var result: [[UsageBucket]] = []
+        var current: [UsageBucket] = []
+        for bucket in buckets {
+            if let prev = current.last,
+               Calendar.current.date(byAdding: calendarUnit, value: 1, to: prev.start) != bucket.start {
+                result.append(current)
+                current = []
+            }
+            current.append(bucket)
+        }
+        if !current.isEmpty { result.append(current) }
+        return result
+    }
+
+    /// 資料範圍內的每個午夜，用來畫換日分隔與日期標籤。
+    private var dayStarts: [Date] {
+        guard granularity == .hour,
+              let first = buckets.first?.start, let last = buckets.last?.start else { return [] }
+        let calendar = Calendar.current
+        var days: [Date] = []
+        var cursor = calendar.startOfDay(for: first)
+        while cursor <= last {
+            if cursor >= first { days.append(cursor) }
+            guard let next = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
+            cursor = next
+        }
+        return days
+    }
+
     private var chart: some View {
         Chart {
-            ForEach(buckets, id: \.key) { bucket in
-                if let used = bucket.usedPercent, used > 0 {
-                    BarMark(x: .value("時間", bucket.start, unit: chartUnit),
-                            y: .value("用量 %", used))
-                        .foregroundStyle(by: .value("類別", "已歸屬"))
+            ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
+                ForEach(segment, id: \.key) { bucket in
+                    LineMark(
+                        x: .value("時間", bucket.start),
+                        y: .value("用量 %", bucket.usedPercent ?? 0),
+                        series: .value("段", index)
+                    )
+                    .foregroundStyle(by: .value("類別", "已歸屬"))
+                    .interpolationMethod(.linear)
+
+                    // 每個區間都畫點：單獨一段（前後都沒取樣）時線畫不出來，只剩點。
+                    // 沒有用量的點畫小一些，讓「有取樣但沒用」與真正的消耗仍分得出來。
+                    PointMark(
+                        x: .value("時間", bucket.start),
+                        y: .value("用量 %", bucket.usedPercent ?? 0)
+                    )
+                    .foregroundStyle(by: .value("類別", "已歸屬"))
+                    .symbolSize((bucket.usedPercent ?? 0) > 0 ? 26 : 8)
                 }
-                if let unknown = bucket.unknownPercent, unknown > 0 {
-                    BarMark(x: .value("時間", bucket.start, unit: chartUnit),
-                            y: .value("用量 %", unknown))
-                        .foregroundStyle(by: .value("類別", "未知區間"))
-                }
-                // 有取樣但用量沒變 -> 零基線標記。
-                // 否則「有抓但沒變」與「完全沒抓」在圖上都是空白。
-                if (bucket.usedPercent ?? 0) == 0 && (bucket.unknownPercent ?? 0) == 0 {
-                    RectangleMark(x: .value("時間", bucket.start, unit: chartUnit),
-                                  y: .value("用量 %", 0),
-                                  height: .fixed(3))
-                        .foregroundStyle(by: .value("類別", "已取樣・無變化"))
-                }
+            }
+
+            // 未知區間不是「某小時的用量」，不能進折線 —— 它的意思是
+            // 「這段消耗確實發生，但不知道落在哪一格」。維持長條，視覺上明顯不同。
+            ForEach(buckets.filter { ($0.unknownPercent ?? 0) > 0 }, id: \.key) { bucket in
+                BarMark(
+                    x: .value("時間", bucket.start, unit: chartUnit),
+                    y: .value("用量 %", bucket.unknownPercent ?? 0)
+                )
+                .foregroundStyle(by: .value("類別", "未知區間"))
+                .opacity(0.85)
             }
         }
         .chartForegroundStyleScale([
             "已歸屬": Color.accentColor,
-            "未知區間": Color.orange,
-            "已取樣・無變化": Color.secondary
+            "未知區間": Color.orange
         ])
         .chartLegend(position: .top, alignment: .leading)
+        .chartBackground { proxy in
+            GeometryReader { geometry in
+                if let plotFrame = proxy.plotFrame {
+                    let rect = geometry[plotFrame]
+                    // 交替底色分日 —— 光靠時刻標籤看不出哪裡換天。
+                    ForEach(Array(dayStarts.enumerated()), id: \.element) { index, day in
+                        if index.isMultiple(of: 2),
+                           let x0 = proxy.position(forX: day),
+                           let x1 = proxy.position(
+                             forX: Calendar.current.date(byAdding: .day, value: 1, to: day) ?? day
+                           ) {
+                            let lo = max(x0, 0)
+                            let hi = min(x1, rect.width)
+                            if hi > lo {
+                                Rectangle()
+                                    .fill(Color.secondary.opacity(0.13))
+                                    .frame(width: hi - lo, height: rect.height)
+                                    .position(x: rect.minX + (lo + hi) / 2, y: rect.midY)
+                            }
+                        }
+                    }
+                }
+            }
+        }
         .chartXAxis {
             AxisMarks(values: .stride(by: axisStride.unit, count: axisStride.count)) { value in
                 AxisGridLine()
                 AxisTick()
                 if let date = value.as(Date.self) {
                     AxisValueLabel {
-                        let isDayStart = granularity == .day
-                            || Calendar.current.component(.hour, from: date) == 0
-                        Text(date, format: isDayStart
+                        Text(date, format: granularity == .day
                              ? .dateTime.month(.defaultDigits).day()
                              : .dateTime.hour())
                             .font(.caption2)
-                            .fontWeight(isDayStart ? .semibold : .regular)
+                    }
+                }
+            }
+            // 第二層：換日的分隔線與日期。日粒度的標籤本來就是日期，不需要。
+            AxisMarks(values: dayStarts) { value in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 1))
+                    .foregroundStyle(Color.secondary.opacity(0.9))
+                if let date = value.as(Date.self) {
+                    AxisValueLabel {
+                        Text(date, format: .dateTime.month(.defaultDigits).day())
+                            .font(.caption2.weight(.semibold))
+                            .fixedSize()          // 不加會被壓成「8/…」
+                            .offset(y: 13)
                     }
                 }
             }
@@ -287,16 +364,93 @@ public struct HistoryChartView: View {
 
     // MARK: - 取樣日誌
 
+    private struct FetchDay: Identifiable {
+        let day: Date
+        let items: [RecentFetch]
+        var id: Date { day }
+    }
+
+    /// 依當地日期分組。一次載 50 筆時，沒有日期分隔會完全看不出跨到哪一天。
+    private var groupedFetches: [FetchDay] {
+        let calendar = Calendar.current
+        var order: [Date] = []
+        var byDay: [Date: [RecentFetch]] = [:]
+        for fetch in model.recentFetches {
+            let day = calendar.startOfDay(for: fetch.completedAt)
+            if byDay[day] == nil { order.append(day) }
+            byDay[day, default: []].append(fetch)
+        }
+        return order.map { FetchDay(day: $0, items: byDay[$0] ?? []) }
+    }
+
     private var fetchLog: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("最近取樣").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("取樣紀錄").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+                Text("已載入 \(model.recentFetches.count) 筆")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+
             if model.recentFetches.isEmpty {
                 Text("尚無紀錄").font(.caption2).foregroundStyle(.tertiary)
             } else {
-                ForEach(model.recentFetches) { fetch in
-                    logRow(fetch)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                        ForEach(groupedFetches) { group in
+                            Section {
+                                ForEach(Array(group.items.enumerated()), id: \.element.id) { index, fetch in
+                                    logRow(fetch)
+                                        .padding(.vertical, 2)
+                                        .padding(.horizontal, 6)
+                                        .background(
+                                            index.isMultiple(of: 2)
+                                                ? Color.clear : Color.secondary.opacity(0.06)
+                                        )
+                                }
+                            } header: {
+                                dayHeader(group.day)
+                            }
+                        }
+                        footer
+                    }
                 }
+                .frame(height: 190)
+                .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
             }
+        }
+    }
+
+    private func dayHeader(_ day: Date) -> some View {
+        HStack(spacing: 6) {
+            Text(day, format: .dateTime.month(.defaultDigits).day())
+                .font(.caption2.weight(.semibold))
+            Text(day, format: .dateTime.weekday(.abbreviated))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(.regularMaterial)
+    }
+
+    @ViewBuilder
+    private var footer: some View {
+        if model.hasMoreFetches {
+            Button {
+                model.loadMoreFetches()
+            } label: {
+                Text("載入更多 \(UsageViewModel.fetchPageSize) 筆").font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+        } else {
+            Text("已經是最早的紀錄")
+                .font(.caption2).foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
         }
     }
 

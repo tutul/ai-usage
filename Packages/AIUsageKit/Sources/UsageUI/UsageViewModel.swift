@@ -10,6 +10,8 @@ public final class UsageViewModel {
     public var health: [Health] = []
     public var buckets: [Service: [UsageBucket]] = [:]
     public var recentFetches: [RecentFetch] = []
+    /// 日誌還有更多可載入。多要一筆來判斷，避免另外查一次 COUNT。
+    public private(set) var hasMoreFetches = false
     public var granularity: Granularity = .hour
     public var failures: [Service: (kind: String, detail: String)] = [:]
     public var loadError: String?  // 排程器也會寫入寫庫失敗訊息
@@ -18,15 +20,32 @@ public final class UsageViewModel {
     /// 取樣間隔（秒）。逾此值的兩倍未成功取樣即視為停擺。
     public var samplingInterval: TimeInterval = 300
 
+    public static let fetchPageSize = 50
+    /// 日誌目前載入的筆數。只增不減 —— 使用者按了「更多」之後，
+    /// 背景取樣觸發的重讀不該把他捲到的位置吃掉。
+    private var fetchLimit = UsageViewModel.fetchPageSize
+
     public init(database: UsageDatabase) {
         self.database = database
+    }
+
+    /// 多取一筆判斷還有沒有下一頁，顯示時再丟掉。
+    private func loadFetchPage() {
+        guard let page = try? database.recentFetches(limit: fetchLimit + 1) else { return }
+        hasMoreFetches = page.count > fetchLimit
+        recentFetches = Array(page.prefix(fetchLimit))
+    }
+
+    public func loadMoreFetches() {
+        fetchLimit += Self.fetchPageSize
+        loadFetchPage()
     }
 
     public func reload(historyDays: Int = 30) {
         do {
             readings = try database.current()
             health = try database.health()
-            recentFetches = try database.recentFetches(limit: 10)
+            loadFetchPage()
             let since = Date().addingTimeInterval(-Double(historyDays) * 86_400)
             var loaded: [Service: [UsageBucket]] = [:]
             for service in Service.allCases {
