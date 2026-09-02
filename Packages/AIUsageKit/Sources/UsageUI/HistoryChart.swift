@@ -6,10 +6,10 @@ import UsageStore
 /// 歷史圖表 + 取樣日誌。
 ///
 /// 四種視覺，意義完全不同，不可混淆：
-/// - 折線上的大點：該區間有用量
+/// - 折線上的藍點：該區間有用量，且可精確歸屬
+/// - 折線上的橘色大點：消耗確實發生，但取樣中斷，只能算在這附近
 /// - 折線上貼著 0 的小點：有取樣，但用量無變化
 /// - 線斷開／完全空白：沒有取樣。**不補值、不連過去**
-/// - 橘色長條：未知區間（消耗確實發生，但取樣中斷，無法歸屬到某一格）
 public struct HistoryChartView: View {
     let model: UsageViewModel
     /// 重新取樣（而非只是重讀資料庫）—— 使用者按重新整理時想看的是「現在的用量」，
@@ -47,7 +47,7 @@ public struct HistoryChartView: View {
                 chart
             }
 
-            Text("線只連接相鄰且都有取樣的區間，**斷開處代表沒有取樣**，不補值。貼著 0 的小點 = 有取樣但用量沒變。「未知區間」表示消耗確實發生，但因取樣中斷而無法歸屬到某一格，日與週的彙總仍會計入。")
+            Text("線只連接相鄰且都有取樣的區間，**斷開處代表沒有取樣**，不補值。貼著 0 的小點 = 有取樣但用量沒變。**橘色大點**代表該筆消耗確實發生、但因取樣中斷而無法精確歸屬到這一小時，只能算在這附近。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -164,43 +164,59 @@ public struct HistoryChartView: View {
         return days
     }
 
+    /// 該區間的總消耗。已歸屬與未知都是「這一格發生的消耗」，圖上不該拆成兩套視覺。
+    private func total(_ bucket: UsageBucket) -> Double {
+        (bucket.usedPercent ?? 0) + (bucket.unknownPercent ?? 0)
+    }
+
+    private func isUncertain(_ bucket: UsageBucket) -> Bool { (bucket.unknownPercent ?? 0) > 0 }
+
+    private func category(_ bucket: UsageBucket) -> String {
+        isUncertain(bucket) ? "未知區間" : "已歸屬"
+    }
+
+    /// 上方留白。自動縮放會把最高的點畫在圖表邊緣，符號有一半被切掉、還會疊到圖例。
+    private var yDomain: ClosedRange<Double> {
+        let peak = buckets.map(total).max() ?? 0
+        return 0...max(peak * 1.15, 1)
+    }
+
     private var chart: some View {
         Chart {
             ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
                 ForEach(segment, id: \.key) { bucket in
+                    // 線本身不分類別，否則同一段會被拆開。用固定色、壓低存在感，讓點說話。
                     LineMark(
                         x: .value("時間", bucket.start),
-                        y: .value("用量 %", bucket.usedPercent ?? 0),
+                        y: .value("用量 %", total(bucket)),
                         series: .value("段", index)
                     )
-                    .foregroundStyle(by: .value("類別", "已歸屬"))
+                    .foregroundStyle(Color.accentColor.opacity(0.5))
                     .interpolationMethod(.linear)
 
-                    // 每個區間都畫點：單獨一段（前後都沒取樣）時線畫不出來，只剩點。
-                    // 沒有用量的點畫小一些，讓「有取樣但沒用」與真正的消耗仍分得出來。
+                    // 未知區間併進同一條線 —— 它本來就已經被歸在某一格
+                    //（v_hourly 算在後一個樣本所在的那小時），分成兩套視覺反而看不出在講同一件事。
+                    // 不確定性改用點的顏色與形狀表示：同時用兩種通道，色覺障礙也分得出來。
                     PointMark(
                         x: .value("時間", bucket.start),
-                        y: .value("用量 %", bucket.usedPercent ?? 0)
+                        y: .value("用量 %", total(bucket))
                     )
-                    .foregroundStyle(by: .value("類別", "已歸屬"))
-                    .symbolSize((bucket.usedPercent ?? 0) > 0 ? 26 : 8)
+                    .foregroundStyle(by: .value("類別", category(bucket)))
+                    .symbol(by: .value("類別", category(bucket)))
+                    .symbolSize(total(bucket) > 0 ? (isUncertain(bucket) ? 60 : 30) : 8)
                 }
             }
-
-            // 未知區間不是「某小時的用量」，不能進折線 —— 它的意思是
-            // 「這段消耗確實發生，但不知道落在哪一格」。維持長條，視覺上明顯不同。
-            ForEach(buckets.filter { ($0.unknownPercent ?? 0) > 0 }, id: \.key) { bucket in
-                BarMark(
-                    x: .value("時間", bucket.start, unit: chartUnit),
-                    y: .value("用量 %", bucket.unknownPercent ?? 0)
-                )
-                .foregroundStyle(by: .value("類別", "未知區間"))
-                .opacity(0.85)
-            }
         }
+        .chartYScale(domain: yDomain)
+        // 顏色與形狀兩個尺度的定義域必須一致，否則資料裡缺某個類別時
+        // （例如日粒度沒有未知區間）會各自畫一個圖例，出現兩次「已歸屬」。
         .chartForegroundStyleScale([
             "已歸屬": Color.accentColor,
             "未知區間": Color.orange
+        ])
+        .chartSymbolScale([
+            "已歸屬": BasicChartSymbolShape.circle,
+            "未知區間": BasicChartSymbolShape.cross
         ])
         .chartLegend(position: .top, alignment: .leading)
         .chartBackground { proxy in
