@@ -35,12 +35,13 @@ public struct HistoryChartView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
+            rangeBar
 
             if buckets.isEmpty {
                 ContentUnavailableView(
-                    "尚無資料",
-                    systemImage: "chart.bar",
-                    description: Text("累積幾天後才會看得出模式。")
+                    "這個範圍內沒有資料",
+                    systemImage: "calendar.badge.exclamationmark",
+                    description: Text("換個日期範圍，或按「快速選擇 → 全部」看看有哪些資料。")
                 )
                 .frame(height: 240)
             } else {
@@ -61,7 +62,7 @@ public struct HistoryChartView: View {
             if active { model.reload() }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .frame(minWidth: 620, minHeight: 560)
+        .frame(minWidth: 640, minHeight: 620)
     }
 
     // MARK: - 標題列
@@ -108,6 +109,68 @@ public struct HistoryChartView: View {
             .buttonStyle(.borderless)
             .disabled(isRefreshing)
             .help("重新取樣並更新圖表")
+        }
+    }
+
+    // MARK: - 顯示範圍
+
+    /// 兩端都經過夾擠，避免起 > 迄 —— DatePicker 的 `in:` 收到反向區間會當掉。
+    private var startBinding: Binding<Date> {
+        Binding(get: { model.rangeStart },
+                set: { model.rangeStart = min($0, model.rangeEnd); model.reload() })
+    }
+
+    private var endBinding: Binding<Date> {
+        Binding(get: { model.rangeEnd },
+                set: {
+                    let today = Calendar.current.startOfDay(for: .now)
+                    model.rangeEnd = max(min($0, today), model.rangeStart)
+                    model.reload()
+                })
+    }
+
+    private func setRange(daysBack: Int) {
+        let today = Calendar.current.startOfDay(for: .now)
+        model.rangeEnd = today
+        model.rangeStart = Calendar.current.date(byAdding: .day, value: -daysBack, to: today) ?? today
+        hoveredBucketStart = nil
+        model.reload()
+    }
+
+    private var rangeBar: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "calendar")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            DatePicker("起", selection: startBinding, in: ...model.rangeEnd, displayedComponents: .date)
+                .labelsHidden()
+                .fixedSize()
+
+            Text("–").foregroundStyle(.secondary)
+
+            DatePicker("迄", selection: endBinding, in: model.rangeStart..., displayedComponents: .date)
+                .labelsHidden()
+                .fixedSize()
+
+            Menu {
+                Button("今天") { setRange(daysBack: 0) }
+                Button("近 3 天") { setRange(daysBack: 2) }
+                Button("近 7 天") { setRange(daysBack: 6) }
+                Button("近 30 天") { setRange(daysBack: 29) }
+                Divider()
+                Button("全部") { hoveredBucketStart = nil; model.showAllRange() }
+            } label: {
+                Text("快速選擇").font(.caption)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+
+            Spacer()
+
+            Text("\(buckets.count) 個\(granularity.displayName)區間")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
         }
     }
 
@@ -431,7 +494,9 @@ public struct HistoryChartView: View {
                         footer
                     }
                 }
-                .frame(height: 190)
+                // 撐滿剩餘高度：固定高度會在視窗放大時留下一塊死空間，
+                // 而日誌正是使用者會想看更多的部分。
+                .frame(minHeight: 160, maxHeight: .infinity)
                 .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
             }
         }

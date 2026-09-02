@@ -13,6 +13,18 @@ public final class UsageViewModel {
     /// 日誌還有更多可載入。多要一筆來判斷，避免另外查一次 COUNT。
     public private(set) var hasMoreFetches = false
     public var granularity: Granularity = .hour
+
+    /// 顯示範圍（含頭含尾，以當地日為單位）。放在 model 而非 view 的 @State，
+    /// 這樣關掉視窗再開還在。
+    public var rangeStart: Date = UsageViewModel.defaultRangeStart
+    public var rangeEnd: Date = Calendar.current.startOfDay(for: .now)
+    /// 最早的樣本，供「全部」與日期選擇器的下界用。
+    public private(set) var earliestSample: Date?
+
+    static var defaultRangeStart: Date {
+        let today = Calendar.current.startOfDay(for: .now)
+        return Calendar.current.date(byAdding: .day, value: -6, to: today) ?? today
+    }
     public var failures: [Service: (kind: String, detail: String)] = [:]
     public var loadError: String?  // 排程器也會寫入寫庫失敗訊息
 
@@ -36,21 +48,35 @@ public final class UsageViewModel {
         recentFetches = Array(page.prefix(fetchLimit))
     }
 
+    /// 涵蓋全部資料。沒有樣本時維持原範圍，不要跳到 1970。
+    public func showAllRange() {
+        if let earliest = earliestSample {
+            rangeStart = Calendar.current.startOfDay(for: earliest)
+        }
+        rangeEnd = Calendar.current.startOfDay(for: .now)
+        reload()
+    }
+
     public func loadMoreFetches() {
         fetchLimit += Self.fetchPageSize
         loadFetchPage()
     }
 
-    public func reload(historyDays: Int = 30) {
+    public func reload() {
         do {
             readings = try database.current()
             health = try database.health()
             loadFetchPage()
-            let since = Date().addingTimeInterval(-Double(historyDays) * 86_400)
+            earliestSample = try database.earliestSample()
+            let calendar = Calendar.current
+            let since = calendar.startOfDay(for: rangeStart)
+            // 迄日要含整天 —— 選 9/2 卻只到 9/2 00:00 會讓當天完全看不到。
+            let until = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: rangeEnd))?
+                .addingTimeInterval(-1)
             var loaded: [Service: [UsageBucket]] = [:]
             for service in Service.allCases {
                 loaded[service] = try database.buckets(
-                    service: service, granularity: granularity, since: since
+                    service: service, granularity: granularity, since: since, until: until
                 )
             }
             buckets = loaded

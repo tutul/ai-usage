@@ -110,6 +110,6 @@ struct AIUsageApp: App {
                 Text(state.startupError ?? "尚未就緒").padding()
             }
         }
-        .defaultSize(width: 700, height: 640)
+        .defaultSize(width: 760, height: 720)
     }
 }

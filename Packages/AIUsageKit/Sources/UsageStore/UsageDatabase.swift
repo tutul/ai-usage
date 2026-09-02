@@ -228,7 +228,8 @@ public final class UsageDatabase: Sendable {
         service: Service,
         windowKind: String = "weekly",
         granularity: Granularity,
-        since: Date
+        since: Date,
+        until: Date? = nil
     ) throws -> [UsageBucket] {
         try pool.read { db in
             try Row.fetchAll(
@@ -238,10 +239,17 @@ public final class UsageDatabase: Sendable {
                        \(granularity.epochColumn) AS bucket_start,
                        used_percent, unknown_percent, pair_count, unattributed_pairs
                   FROM \(granularity.view)
-                 WHERE service = ? AND window_kind = ? AND \(granularity.epochColumn) >= ?
+                 WHERE service = ? AND window_kind = ?
+                   AND \(granularity.epochColumn) >= ?
+                   AND (? IS NULL OR \(granularity.epochColumn) <= ?)
                  ORDER BY bucket_start
                 """,
-                arguments: [service.rawValue, windowKind, Int(since.timeIntervalSince1970)]
+                arguments: [
+                    service.rawValue, windowKind,
+                    Int(since.timeIntervalSince1970),
+                    until.map { Int($0.timeIntervalSince1970) },
+                    until.map { Int($0.timeIntervalSince1970) }
+                ]
             ).map { row in
                 UsageBucket(
                     key: row["bucket_key"],
@@ -256,6 +264,14 @@ public final class UsageDatabase: Sendable {
     }
 
     /// 最近的取樣嘗試，成功與失敗都包含 —— 日誌的價值就在於看得到失敗。
+    /// 最早的樣本時間，供「全部」與日期選擇器的下界用。
+    public func earliestSample() throws -> Date? {
+        try pool.read { db in
+            try Int.fetchOne(db, sql: "SELECT MIN(observed_at) FROM sample")
+                .map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        }
+    }
+
     public func recentFetches(limit: Int = 10) throws -> [RecentFetch] {
         try pool.read { db in
             try Row.fetchAll(
