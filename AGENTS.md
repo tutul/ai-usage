@@ -57,6 +57,7 @@ open .build/xcode/Build/Products/Debug/AIUsage.app
 | 以欄位位置認窗 | 5 小時的數字被靜默寫進 weekly 序列 | 一律以 `limit_window_seconds` 判定 |
 | 在「零用量」資料上推論窗行為 | 得出「滾動窗」的錯誤結論 | 推論前先問：資料涵蓋了要推論的變項變化嗎 |
 | `WHERE` 濾掉了要觀察的現象 | 門檻掃描加了 `kind='ok'`，睡眠長間隔全被排除 | 同上，但**自己下的過濾條件也算**一種資料範圍 |
+| ad-hoc 簽章的 app 讀寫別人的 Keychain 項目 | 每次重新建置都被要求輸入 login 密碼 —— 因為分區清單只能用 cdhash 釘住，而 cdhash 每 build 都變 | 不是 ACL 問題，別去動 ACL（見 D-015）。要根治得有穩定簽章 |
 | 對「時間桶」查 `used_percent > 100` | 誤報 —— 一天含約 4.8 個 5 小時窗，session 日桶超過 100 是正常的 | 不變量在**單一窗**，不在時間桶。查 `v_window_summary` |
 
 ## 驗證要求

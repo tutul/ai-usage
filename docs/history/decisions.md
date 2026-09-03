@@ -260,3 +260,47 @@ Codex 的 `~/.codex/auth.json` **維持唯讀**，因為 ChatGPT.app 確實會�
 很薄；真正有邏輯的部分（解析、寫入、delta）都已在 Core/Store 裡可測。
 
 若日後排程策略變複雜（例如依用量調整頻率），再抽成 `UsageSampling` target。
+
+---
+
+## D-015 Keychain 提示的成因是分區清單，不是授權清單
+**2026-09-03** · 現行 · **推翻「寫回會清掉信任應用程式清單」**
+
+> **被推翻的診斷（commit 4511fb9）**：使用者每天被 macOS 要求輸入 login keychain
+> 密碼，對話框寫「security wants to access key "Claude Code-credentials"」。
+> 當時判定是本 app 的 `SecItemUpdate` 把該項目的信任應用程式清單換成只剩自己，
+> 於是加了「寫入前存下 ACL、寫完再用 `SecKeychainItemSetAccess` 還原」。
+> 該修正上線後每次續期都回報「還原成功」，但**問題完全沒有改善**。
+
+推翻的證據，用拋棄式 keychain 項目做的獨立實驗（不碰真實憑證）：建立一個信任
+`/usr/bin/security` 與測試程式的項目，只呼叫 `SecItemUpdate` 更新資料，前後 dump
+信任清單 ——
+
+```
+更新前: 信任 2 個 -> swift-frontend, /usr/bin/security
+SecItemUpdate: OSStatus 0
+更新後: 信任 2 個 -> swift-frontend, /usr/bin/security
+```
+
+**完全沒變。** 直接 dump 真實項目的 ACL 也證實 `/usr/bin/security` 一直都在清單裡。
+
+真正的關卡是 macOS 疊在 ACL 之上的**分區清單（partition list）**。該項目的分區是：
+
+```
+cdhash:e791ca75954c932dd6e24da75658aef942104e82
+apple-tool:
+```
+
+那個 cdhash **正好等於當下 AIUsage 這個 build**。本 app 是 ad-hoc 簽章
+（`CODE_SIGN_IDENTITY = "-"`、`TeamIdentifier=not set`），**沒有 team ID 可用，
+macOS 只能以 cdhash 釘住**，而 cdhash 每次重新建置都會變 —— 於是每個新 build
+都是一個陌生身分，都要重新授權一次。旁證：該項目的信任清單裡有 **29 筆重複的
+AIUsage 條目**，數量與開發期間重新建置的次數相當。
+
+**教訓**：症狀對得上不等於機制對得上。「關掉 app 提示就停了」只證明了本 app 有份，
+沒有證明是哪條路徑；當時據此直接改程式，繞了兩天。**這次的實驗只花幾分鐘，
+而且從一開始就做得到。**
+
+同時移除：那段 ACL 還原程式是為錯誤假設寫的，它每次續期都對別人的 keychain 項目
+執行一次 ChangeACL（該項目的 ChangeACL ACL 信任清單是空的），並且用的是自
+macOS 10.10 起 deprecated 的 API。留著只有壞處。
