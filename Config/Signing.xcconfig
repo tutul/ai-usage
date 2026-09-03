@@ -1,0 +1,10 @@
+// 簽章設定。這個檔案有進版控，不要把你的 team ID 寫在這裡。
+//
+// team ID 放在 Config/Local.xcconfig（已 gitignore），複製範本後填入：
+//
+//     cp Config/Local.xcconfig.example Config/Local.xcconfig
+//
+// 用 #include? 而非 #include —— 檔案不存在時不報錯，clone 下來仍然能開專案，
+// 只是簽章會失敗並顯示 team 為空，README 有說明怎麼補。
+
+#include? "Local.xcconfig"

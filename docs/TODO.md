@@ -64,6 +64,19 @@ brief 列為 v1 non-goal。資料齊備後是很便宜的加法。
 結論：**暫時不需要動。** 除非日後 UI 要對使用者明示「這根長條可能偏移多久」，
 屆時才需要把這個數字當成一個公開的產品承諾來訂。
 
+### 7. 備援：不需憑證的 Claude 數字來源（低，尚未需要）
+[Claude-Code-Usage-Monitor](https://github.com/Maciek-roboblog/Claude-Code-Usage-Monitor)
+的 `--statusline` 模式接收 **Claude Code 主動餵給 statusline 指令的 `rate_limits`** ——
+那是官方數字，而且**完全不需要認證**，是 Claude Code 自己遞過來的。
+
+不能取代目前的做法：只有 Claude Code 正在跑時才有新數字（本專案要的是常駐背景
+取樣），而且沒有 Codex。但如果哪天憑證那條路又壞掉（scope 變更、端點下線、
+Keychain 政策再改），這是唯一已知的 plan B，值得記著。
+
+同一個專案的預設模式是讀本機 JSONL 對話紀錄自己算 token —— **那條路本專案不走**，
+理由見 non-goal：它只看得到這台機器上透過 Claude Code 做的事，而週用量是帳號
+層級的（與 D-012 拒絕「過期寫 0」是同一個理由）。
+
 ## 不做（brief 的 non-goal，仍然有效）
 
 - **Gemini** —— 其配額是每日請求數，weekly % 這個指標不存在

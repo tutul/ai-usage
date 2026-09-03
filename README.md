@@ -27,17 +27,36 @@ menu bar 圖示（gauge，隨用量變色）
 
 ### 1. 設定你自己的簽章
 
-專案檔裡的 `DEVELOPMENT_TEAM` 是原作者的，**你必須改成自己的**，否則建置會失敗。
+專案檔**不含**任何人的 team ID —— 它讀 `Config/Local.xcconfig`，那個檔案已被
+gitignore。複製範本並填入你自己的：
+
+```bash
+cp Config/Local.xcconfig.example Config/Local.xcconfig
+```
 
 ```
-開啟 AIUsage.xcodeproj → 選 AIUsage target → Signing & Capabilities
-  ☑ Automatically manage signing
-  Team:                 <你的名字> (Personal Team)      ← 免費 Apple ID 即可
-  Signing Certificate:  Development                     ← 不要用 Sign to Run Locally
+AIUSAGE_DEVELOPMENT_TEAM = 你的十位 team ID
 ```
 
 還沒有 Apple ID 的話先加：`Xcode → Settings → Accounts → +`。**免費帳號就夠**，
-不需要付費的 Developer Program。
+不需要付費的 Developer Program。加完之後 team ID 可以這樣查：
+
+```bash
+security find-identity -v -p codesigning     # 括號裡那十位英數
+```
+
+> **請用 `Config/Local.xcconfig`，不要在 Xcode 的 Signing & Capabilities
+> 下拉選單裡選 Team。** 從 UI 選會把 team ID **寫回 `project.pbxproj`**，
+> 於是你的 git 永遠帶著一個不該提交的改動。
+
+Xcode UI 裡只需要確認這兩項（專案已設好，正常不用動）：
+
+```
+☑ Automatically manage signing
+Signing Certificate:  Development        ← 不是 Sign to Run Locally
+```
+
+`Sign to Run Locally` 就是 ad-hoc，選了它 team 設定等於沒作用。
 
 在 Xcode 裡按 ⌘B 建置一次，讓它建立憑證（過程中會要求存取鑰匙圈存放私鑰，允許）。
 確認：
@@ -49,6 +68,9 @@ codesign -d -vv .build/xcode/Build/Products/Debug/AIUsage.app 2>&1 | grep TeamId
 
 `TeamIdentifier` 必須有值。若是 `not set`，表示 Signing Certificate 還停在
 `Sign to Run Locally`（＝ad-hoc），**團隊設定等於沒作用**。
+
+若建置直接失敗並顯示 `Signing for "AIUsage" requires a development team`，
+就是 `Config/Local.xcconfig` 還沒建立或內容是空的。
 
 > **為什麼不能用 ad-hoc？** ad-hoc 沒有 team ID，macOS 只能用 cdhash 把本 app
 > 釘進 Keychain 項目的分區清單，而 cdhash **每次重新建置都會變** —— 於是每個

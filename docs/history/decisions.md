@@ -321,15 +321,16 @@ apple-tool 遭移除 → Claude Code 讀取時 security 被問 → 批准後 app
 AIUsage 遭移除 → 下次重建再來一輪。
 
 **根治**：改用 Apple Development 憑證簽章（免費 Personal Team 即可）。
-`DEVELOPMENT_TEAM = 2PUS5K7TA4`、`CODE_SIGN_IDENTITY[sdk=macosx*] = "Apple Development"`。
-簽章後 `TeamIdentifier=2PUS5K7TA4`，分區改以 **teamid 釘住，跨 build 不變**。
+`CODE_SIGN_IDENTITY[sdk=macosx*] = "Apple Development"`，team ID 由
+`Config/Local.xcconfig`（gitignore）提供，專案檔本身不含任何人的 team ID。
+簽章後 `TeamIdentifier` 有值，分區改以 **teamid 釘住，跨 build 不變**。
 
 **順序很重要**：必須在啟動新簽章的 build **之前**把三者一次寫進分區清單，
 否則那一次批准會覆蓋掉手動設定，前功盡棄。
 
 ```bash
 security set-generic-password-partition-list \
-  -S apple-tool:,apple:,teamid:2PUS5K7TA4 -s "Claude Code-credentials" -a <帳號>
+  -S apple-tool:,apple:,teamid:<你的 TEAMID> -s "Claude Code-credentials" -a <帳號>
 ```
 
 驗證通過（2026-09-03 21:46）：新簽章的 build 啟動後 Claude 與 Codex 取樣皆 200，

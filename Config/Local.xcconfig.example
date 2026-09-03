@@ -1,0 +1,8 @@
+// 複製成 Config/Local.xcconfig 後填入你自己的 Apple Development team ID。
+// 這個檔案是你本機的，不會進版控。
+//
+// 查法：Xcode → Settings → Accounts 選你的 Apple ID，或
+//     security find-identity -v -p codesigning
+// 括號裡那十位英數就是。
+
+AIUSAGE_DEVELOPMENT_TEAM = 

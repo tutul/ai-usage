@@ -4,3 +4,6 @@
 *.xcuserdatad
 xcuserdata/
 DerivedData/
+
+# 本機簽章設定（team ID）
+Config/Local.xcconfig
