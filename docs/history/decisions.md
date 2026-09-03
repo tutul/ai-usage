@@ -304,3 +304,36 @@ AIUsage 條目**，數量與開發期間重新建置的次數相當。
 同時移除：那段 ACL 還原程式是為錯誤假設寫的，它每次續期都對別人的 keychain 項目
 執行一次 ChangeACL（該項目的 ChangeACL ACL 信任清單是空的），並且用的是自
 macOS 10.10 起 deprecated 的 API。留著只有壞處。
+
+### 解法與收尾（2026-09-03）
+
+觀測到最後一塊拼圖：**使用者批准一個提示時，macOS 是把分區清單「換成」批准者，
+不是把批准者「加進」清單。** 直接證據 ——
+
+```
+重建前: cdhash:e791ca…（舊 build） + apple-tool:
+重建並批准後: cdhash:2ed639…（新 build）        ← apple-tool: 被踢掉了
+```
+
+而 `/usr/bin/security` 正是 apple-tool，也正是 Claude Code 讀自己憑證的方式。
+所以提示會在兩者之間**輪流**出現，永遠不會停：重建 → AIUsage 被問 → 批准後
+apple-tool 遭移除 → Claude Code 讀取時 security 被問 → 批准後 apple-tool 回來、
+AIUsage 遭移除 → 下次重建再來一輪。
+
+**根治**：改用 Apple Development 憑證簽章（免費 Personal Team 即可）。
+`DEVELOPMENT_TEAM = 2PUS5K7TA4`、`CODE_SIGN_IDENTITY[sdk=macosx*] = "Apple Development"`。
+簽章後 `TeamIdentifier=2PUS5K7TA4`，分區改以 **teamid 釘住，跨 build 不變**。
+
+**順序很重要**：必須在啟動新簽章的 build **之前**把三者一次寫進分區清單，
+否則那一次批准會覆蓋掉手動設定，前功盡棄。
+
+```bash
+security set-generic-password-partition-list \
+  -S apple-tool:,apple:,teamid:2PUS5K7TA4 -s "Claude Code-credentials" -a <帳號>
+```
+
+驗證通過（2026-09-03 21:46）：新簽章的 build 啟動後 Claude 與 Codex 取樣皆 200，
+**且分區清單未被改寫** —— 讀取時 teamid 直接命中，不觸發提示、不觸發覆寫。
+
+檢查工具：`swift scripts/keychain-acl.swift`（唯讀）。Keychain Access 的 GUI
+只看得到信任清單，**看不到分區清單** —— 這是當初診斷繞路的原因之一。
