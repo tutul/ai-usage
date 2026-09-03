@@ -17,23 +17,80 @@ menu bar 圖示（gauge，隨用量變色）
 | Xcode | 16 以上（開發於 26.6） |
 | Claude Code | 必須安裝並已 `claude auth login` |
 | ChatGPT / Codex | 必須已登入（本 app 讀 `~/.codex/auth.json`） |
+| Apple ID | 建置需要，**免費帳號即可**（見下方簽章說明） |
 
 ## 安裝
 
-```bash
-git clone <repo> && cd ai-usage
+**沒有預先建好的二進位檔可下載。** 本專案以 Apple Development 憑證簽章，那是
+開發用憑證、只能在簽章者自己的機器上執行；散布給別人需要 Developer ID
+憑證（$99/年）與公證，本專案不打算做。**請自行建置。**
 
+### 1. 設定你自己的簽章
+
+專案檔裡的 `DEVELOPMENT_TEAM` 是原作者的，**你必須改成自己的**，否則建置會失敗。
+
+```
+開啟 AIUsage.xcodeproj → 選 AIUsage target → Signing & Capabilities
+  ☑ Automatically manage signing
+  Team:                 <你的名字> (Personal Team)      ← 免費 Apple ID 即可
+  Signing Certificate:  Development                     ← 不要用 Sign to Run Locally
+```
+
+還沒有 Apple ID 的話先加：`Xcode → Settings → Accounts → +`。**免費帳號就夠**，
+不需要付費的 Developer Program。
+
+在 Xcode 裡按 ⌘B 建置一次，讓它建立憑證（過程中會要求存取鑰匙圈存放私鑰，允許）。
+確認：
+
+```bash
+security find-identity -v -p codesigning     # 應出現一張 Apple Development
+codesign -d -vv .build/xcode/Build/Products/Debug/AIUsage.app 2>&1 | grep TeamIdentifier
+```
+
+`TeamIdentifier` 必須有值。若是 `not set`，表示 Signing Certificate 還停在
+`Sign to Run Locally`（＝ad-hoc），**團隊設定等於沒作用**。
+
+> **為什麼不能用 ad-hoc？** ad-hoc 沒有 team ID，macOS 只能用 cdhash 把本 app
+> 釘進 Keychain 項目的分區清單，而 cdhash **每次重新建置都會變** —— 於是每個
+> 新 build 都是陌生身分，都要重新輸入一次鑰匙圈密碼，而且會把 Claude Code
+> 自己的存取權擠掉。詳見 [D-015](docs/history/decisions.md)。
+
+### 2. 建置與啟動
+
+```bash
 xcodebuild -project AIUsage.xcodeproj -scheme AIUsage -configuration Debug \
   -derivedDataPath .build/xcode build
 
 open .build/xcode/Build/Products/Debug/AIUsage.app
 ```
 
-首次啟動時 macOS 會詢問是否允許讀取 Keychain 中的
-「Claude Code-credentials」，**按「一律允許」**。
+### 3. 一次性的 Keychain 授權（重要，順序不能反）
 
-> ⚠️ 本 app 為 ad-hoc 簽章，**每次重新建置簽章都會改變**，該授權可能再次跳出。
-> 日常使用不重建就不會遇到。
+本 app 讀 Claude Code 的 Keychain 項目，而 Claude Code 自己是透過
+`/usr/bin/security` 讀它。macOS 的分區清單在使用者批准提示時是**「換成」批准者、
+不是「加進」批准者** —— 所以兩邊會輪流被要求輸入密碼，永遠不會停。
+
+**在第一次啟動 app 之前**，把兩邊一次寫進分區清單（`TEAMID` 換成上面查到的、
+`ACCOUNT` 通常是你的使用者名稱）：
+
+```bash
+security set-generic-password-partition-list \
+  -S apple-tool:,apple:,teamid:TEAMID -s "Claude Code-credentials" -a ACCOUNT
+```
+
+會跳出系統對話框要求 login keychain 密碼（可能問兩次）。**不要用 `-k` 帶密碼**，
+那會留在 shell 歷史裡。
+
+順序反了的話，那一次「一律允許」會覆蓋掉你設定的清單，得重跑一次。
+
+驗證（唯讀）：
+
+```bash
+swift scripts/keychain-acl.swift
+```
+
+分區清單要同時看到 `apple-tool:`、`apple:`、`teamid:<你的>`。
+Keychain Access 的 GUI **看不到分區清單**，只能用這支工具查。
 
 ## 憑證怎麼來
 
