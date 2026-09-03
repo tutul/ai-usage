@@ -89,6 +89,14 @@ swift /tmp/winlist.swift            # 見 decisions.md，用 CGWindowListCopyWin
 screencapture -x -o -l <windowID> /tmp/win.png
 ```
 
+## 查 Keychain 授權狀態
+
+```bash
+swift scripts/keychain-acl.swift    # 唯讀。印出信任應用程式清單與分區清單
+```
+
+分區清單是提示的真正成因，**Keychain Access 的 GUI 看不到它**（見 D-015）。
+
 ## 與使用者互動
 
 - 使用者的觀察優先於你的資料範圍。「我的資料裡沒有」不等於「沒發生過」。
