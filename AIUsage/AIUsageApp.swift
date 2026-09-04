@@ -24,7 +24,15 @@ final class AppState {
 
             let sampler = Sampler(
                 database: database,
-                providers: [ClaudeProvider(), CodexProvider()],
+                providers: [
+                    // 實驗中（2026-09-04）：暫停自行續期。每次寫回 Keychain 都會把該項目的
+                    // 分區清單重設成本 app 的 teamid，把 Claude Code 用的 apple-tool: 踢掉，
+                    // 於是使用者每天被要求輸入鑰匙圈密碼兩三次。
+                    // 觀察 mdat 是否仍會前進 —— 若會，表示 Claude Code 自己會續，
+                    // D-010「沒有其他續期者」的前提不成立，可永久維持唯讀。見 docs/status.md。
+                    ClaudeProvider(credentials: ClaudeCredentialSource(renewalEnabled: false)),
+                    CodexProvider()
+                ],
                 model: model,
                 interval: Self.samplingInterval
             )

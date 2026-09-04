@@ -41,17 +41,20 @@ public actor ClaudeCredentialSource: CredentialSource {
     let keychainService: String
     let userAgent: UserAgent
     let renewalMargin: TimeInterval
+    let renewalEnabled: Bool
 
     public init(
         fileURL: URL = URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".claude/.credentials.json"),
         keychainService: String = "Claude Code-credentials",
         userAgent: UserAgent = .claude,
-        renewalMargin: TimeInterval = ClaudeCredentialSource.defaultRenewalMargin
+        renewalMargin: TimeInterval = ClaudeCredentialSource.defaultRenewalMargin,
+        renewalEnabled: Bool = true
     ) {
         self.fileURL = fileURL
         self.keychainService = keychainService
         self.userAgent = userAgent
         self.renewalMargin = renewalMargin
+        self.renewalEnabled = renewalEnabled
     }
 
     public func accessToken() async throws -> String {
@@ -67,7 +70,16 @@ public actor ClaudeCredentialSource: CredentialSource {
             )
         }
 
-        guard needsRenewal(oauth) else { return token }
+        guard needsRenewal(oauth) else {
+            if !renewalEnabled && isExpired(oauth) {
+                throw FetchFailure(
+                    kind: .auth,
+                    detail: "Claude token 已過期，本 app 目前不自行續期"
+                          + "（避免寫回 Keychain 時重設分區清單）。開一次 Claude Code 讓它續期即可。"
+                )
+            }
+            return token
+        }
 
         guard let refreshToken = oauth["refreshToken"] as? String else {
             throw FetchFailure(kind: .auth, detail: "Claude token 已過期且無 refreshToken，請執行 `claude auth login`。")
@@ -132,11 +144,21 @@ public actor ClaudeCredentialSource: CredentialSource {
     }
 
     func needsRenewal(_ oauth: [String: Any]) -> Bool {
+        guard renewalEnabled else { return false }
         guard let raw = oauth["expiresAt"] as? Double ?? (oauth["expiresAt"] as? Int).map(Double.init) else {
             return false  // 沒有到期資訊就不主動續期
         }
         let seconds = raw > 1e11 ? raw / 1000 : raw
         return Date(timeIntervalSince1970: seconds).timeIntervalSinceNow < renewalMargin
+    }
+
+    /// token 已過期。續期關閉時用來給出可行動的訊息，而不是讓伺服器回一個沒頭沒尾的 401。
+    func isExpired(_ oauth: [String: Any]) -> Bool {
+        guard let raw = oauth["expiresAt"] as? Double ?? (oauth["expiresAt"] as? Int).map(Double.init) else {
+            return false
+        }
+        let seconds = raw > 1e11 ? raw / 1000 : raw
+        return Date(timeIntervalSince1970: seconds) < Date()
     }
 
     struct Renewal {
