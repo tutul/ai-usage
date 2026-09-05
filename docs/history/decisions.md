@@ -338,3 +338,58 @@ security set-generic-password-partition-list \
 
 檢查工具：`swift scripts/keychain-acl.swift`（唯讀）。Keychain Access 的 GUI
 只看得到信任清單，**看不到分區清單** —— 這是當初診斷繞路的原因之一。
+
+---
+
+## D-016 讀 Claude Code 的憑證，只寫自己的
+**2026-09-05** · 現行 · **推翻 D-010 的「寫回 Claude Code 的項目」**
+
+> **被推翻的實作**：續期後把新憑證完整寫回 `Claude Code-credentials`，
+> 理由是「refresh token 會輪替，不寫回會讓 CLI 的那份失效」。理由本身是對的，
+> 但這個做法有個當時不知道的副作用。
+
+**決定性證據**（2026-09-05 10:40，同一分鐘內前後對照）：
+
+```
+寫入前: apple-tool:  apple:  teamid:2PUS5K7TA4
+寫入後: teamid:2PUS5K7TA4
+```
+
+對該項目呼叫 `SecItemUpdate` **會把它的分區清單換成呼叫者的身分**，把
+`/usr/bin/security`（Claude Code 讀自己憑證的方式）用的 `apple-tool:` 踢掉。
+於是使用者每天被 macOS 要求輸入兩三次鑰匙圈密碼，而且永遠不會停 ——
+每次續期（約 8 小時一次）就重來一次。
+
+**讀取不會造成這件事，只有寫入會。** 旁證：關閉續期的 15 小時內，app 持續每
+5 分鐘讀取，分區清單完全沒動。
+
+### 先排除掉的兩條路
+
+**改唯讀、讓別人續**（D-010 的前提是「沒有其他續期者」，值得重驗）：
+2026-09-04 19:33 關閉續期 → `mdat` 15 小時沒動 → token 於 09-05 03:32 過期
+→ 84 筆 auth 失敗。使用者整天都在用 Claude Code。**前提仍然成立，沒有其他續期者。**
+
+**改寫 `~/.claude/.credentials.json`**：`claude` 執行檔的讀取順序是
+`R = await Vn() ?? R` —— 先讀檔案，再讓 Keychain 覆蓋。macOS 上 Keychain 優先，
+檔案只是備援，所以搬過去 Claude Code 不會跟著搬。
+
+### 決定
+
+**讀 Claude Code 的項目（種子），寫自己的 `AIUsage-claude-credentials`。**
+讀取順序：自己的 → 檔案 → Claude Code 的。
+
+**代價（知情選擇）**：refresh token 單次有效（2026-09-01 的競態中，第二個請求
+拿到 `invalid_grant` 即為證據），所以我們續期後 Claude Code 手上那份就作廢，
+`claude` CLI 需要 `claude auth login` 一次。使用者確認他在 Mac 上不使用 CLI
+（當初是為了這個專案才裝的），且桌面版實測不靠這個項目續期。
+
+**用一次性的重新登入，換掉每天兩三次、永不停止的密碼提示。**
+
+**自癒**：續期若因憑證失效而失敗（`auth` 或內容含 `invalid_grant`），
+自動刪除本 app 的項目，下次取樣重新從 Claude Code 的項目種子。
+所以使用者哪天重新登入，我們會自己接上。
+
+**教訓**：這是 D-015 的延續，而 D-015 的實驗**測錯了對象** —— 驗證了
+`SecItemUpdate` 不改「信任應用程式清單」，卻沒測「分區清單」，
+而分區清單正是當時剛認定的真正關卡。**做了實驗不等於測對了東西；
+下手前先確認待測對象就是你剛剛認定的那個機制。**

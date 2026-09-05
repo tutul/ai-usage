@@ -120,7 +120,7 @@ Keychain Access 的 GUI **看不到分區清單**，只能用這支工具查。
 
 | Provider | 來源 | 續期 |
 |---|---|---|
-| **Claude** | Keychain `Claude Code-credentials`（或 `~/.claude/.credentials.json`） | **本 app 自行續期**（過期前 5 分鐘用 refresh token 換新的，完整保留原 JSON 結構寫回，不破壞 CLI 登入） |
+| **Claude** | **讀** Keychain `Claude Code-credentials`（只在本 app 還沒有自己的憑證時），**寫** 自己的 `AIUsage-claude-credentials` | **本 app 自行續期**（過期前 5 分鐘換新）。**絕不寫回 Claude Code 的項目** —— 寫它會重設它的分區清單，害 Claude Code 每天要你輸入好幾次鑰匙圈密碼 |
 | **Codex** | `~/.codex/auth.json` | 由 ChatGPT.app 負責，本 app **唯讀不寫回** |
 
 > ⚠️ **不要用 `claude setup-token`。** 它產生的 token 缺少 `user:profile` scope，
@@ -129,6 +129,21 @@ Keychain Access 的 GUI **看不到分區清單**，只能用這支工具查。
 
 Claude 的 refresh token 約 30 天到期，屆時需重跑 `claude auth login`。
 選單會顯示明確原因，不會只給看不懂的錯誤。
+
+> ### ⚠️ 這會讓 `claude` CLI 需要重新登入一次
+>
+> Claude 的 refresh token 是**單次有效**的：用掉一個就換一個新的，舊的立刻作廢。
+> 本 app 續期之後，Claude Code 手上那份就過期了，`claude` CLI 下次要用時會失敗，
+> 需要跑一次 `claude auth login`。
+>
+> **為什麼仍然這樣做**：另一條路是寫回 Claude Code 的項目，但那會重設該項目的
+> 分區清單，讓 macOS **每天要你輸入兩三次鑰匙圈密碼、永遠不停**。
+> 一次性的重新登入換掉持續的干擾，是刻意的取捨（見 [D-016](docs/history/decisions.md)）。
+>
+> **不必手動處理**：若你重新登入、把 refresh token 換掉，本 app 的續期會失敗，
+> 它會自動丟掉自己那份、下次取樣重新從 Claude Code 的項目取得憑證。
+>
+> Claude Code 的**桌面版不受影響** —— 實測它不靠這個項目續期。
 
 ## 使用上要知道的事
 

@@ -156,7 +156,7 @@ OpenAI 客服說法：「weekly window starts at the first message you send」�
 
 | Provider | 來源 | 續期 |
 |---|---|---|
-| Claude | Keychain `Claude Code-credentials` 或 `~/.claude/.credentials.json` | **本 app 自行續期**：過期前 5 分鐘以 refresh token 換新，完整保留原 JSON 結構寫回。429 時退避 15 分鐘 |
+| Claude | **讀**：自己的 `AIUsage-claude-credentials` → `~/.claude/.credentials.json` → Claude Code 的 `Claude Code-credentials`（種子）。**寫**：只寫自己的那個 | **本 app 自行續期**：過期前 5 分鐘換新，429 時退避 15 分鐘。**絕不寫 Claude Code 的項目**（會重設其分區清單，見 D-016）。續期鏈失效時自動清除自己的項目、重新種子 |
 | Codex | `~/.codex/auth.json` | ChatGPT.app 負責，本 app **唯讀不寫回** |
 
 Claude 續期端點：`POST platform.claude.com/v1/oauth/token`，

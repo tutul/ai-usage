@@ -3,18 +3,31 @@ import Security
 import os
 import UsageCore
 
-/// Claude 憑證來源，**含自動續期**。
+/// Claude 憑證來源，**含自動續期，且續期後寫入本 app 自己的 Keychain 項目**。
 ///
-/// 原本設計為唯讀，假設「Claude Code 會續期」。實測推翻了這個假設：
-/// `Claude Code-credentials` 這個 Keychain 項目只有 `claude` CLI 會續，
-/// 桌面 App 用的是自己的 Electron cookie，完全不碰它。若使用者只用桌面 App，
-/// 該 token 過期後就再也不會更新 —— Claude 追蹤等於永久停擺，而非偶爾有 gap。
+/// ## 為什麼不寫回 Claude Code 的項目
 ///
-/// 因此改為由本 app 自行續期並寫回。原則「絕不寫回」的理由是避免與續期者衝突，
-/// 但這裡根本沒有其他續期者，前提不成立。
+/// 原本是讀寫同一個項目（`Claude Code-credentials`）。實測（D-015、D-016）發現
+/// **對該項目呼叫 `SecItemUpdate` 會把它的「分區清單」換成呼叫者的身分**，
+/// 把 Claude Code 自己用的 `apple-tool:` 踢掉 —— 於是使用者每天被 macOS 要求輸入
+/// 兩三次鑰匙圈密碼。前後對照（2026-09-05 10:40，同一分鐘內）：
 ///
-/// 寫回必須完整保留原 JSON 結構（`subscriptionType`、`rateLimitTier` 等），
-/// 只替換 oauth 欄位 —— 否則會弄壞 `claude` CLI 的登入狀態。
+///     寫入前: apple-tool:  apple:  teamid:2PUS5K7TA4
+///     寫入後: teamid:2PUS5K7TA4
+///
+/// **讀取不會造成這件事，只有寫入會**（15 小時唯讀期間清單完全沒動）。
+/// 所以改成：**讀 Claude Code 的項目，只寫自己的**。
+///
+/// ## 代價
+///
+/// refresh token 是單次有效的（2026-09-01 的競態中，第二個請求拿到 `invalid_grant`）。
+/// 我們續期後 Claude Code 手上那份就作廢了，`claude` CLI 需要重新登入一次。
+/// 這是知情的取捨：使用者不用 CLI，而每天兩三次密碼提示是持續的成本。
+///
+/// 為此保留自癒：續期若因憑證失效而失敗，就刪掉我們自己的項目，
+/// 下次取樣會重新從 Claude Code 的項目取得憑證。所以使用者哪天重新登入，
+/// 我們會自己接上，不需要任何手動處理。
+///
 public actor ClaudeCredentialSource: CredentialSource {
     public static let tokenEndpoint = URL(string: "https://platform.claude.com/v1/oauth/token")!
     /// 從 `claude` CLI 執行檔 `strings` 取得。OAuth public client，非機密，
@@ -38,7 +51,10 @@ public actor ClaudeCredentialSource: CredentialSource {
     private let renewalFlight = SingleFlight<String>()
 
     let fileURL: URL
+    /// Claude Code 的項目。**唯讀** —— 寫它會重設它的分區清單。
     let keychainService: String
+    /// 本 app 自己的項目，續期後寫這裡。
+    let privateKeychainService: String
     let userAgent: UserAgent
     let renewalMargin: TimeInterval
     let renewalEnabled: Bool
@@ -46,12 +62,14 @@ public actor ClaudeCredentialSource: CredentialSource {
     public init(
         fileURL: URL = URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".claude/.credentials.json"),
         keychainService: String = "Claude Code-credentials",
+        privateKeychainService: String = "AIUsage-claude-credentials",
         userAgent: UserAgent = .claude,
         renewalMargin: TimeInterval = ClaudeCredentialSource.defaultRenewalMargin,
         renewalEnabled: Bool = true
     ) {
         self.fileURL = fileURL
         self.keychainService = keychainService
+        self.privateKeychainService = privateKeychainService
         self.userAgent = userAgent
         self.renewalMargin = renewalMargin
         self.renewalEnabled = renewalEnabled
@@ -113,6 +131,10 @@ public actor ClaudeCredentialSource: CredentialSource {
         } catch let failure as FetchFailure {
             if failure.kind == .rateLimited {
                 renewalBlockedUntil = Date().addingTimeInterval(Self.renewalCooldown)
+            } else if failure.kind == .auth || failure.detail.contains("invalid_grant") {
+                // 續期鏈斷了 —— 多半是使用者重新登入、把 refresh token 換掉了。
+                // 丟掉自己那份，下次取樣就會回頭從 Claude Code 的項目重新種子。
+                discardPrivateCredentials()
             }
             throw failure
         }
@@ -204,50 +226,60 @@ public actor ClaudeCredentialSource: CredentialSource {
         return json
     }
 
+    /// 讀取順序：**本 app 自己的項目 → 檔案 → Claude Code 的項目**。
+    /// 最後那個是種子來源，只在我們還沒有自己的憑證時才會用到。
     func rawCredentials() throws -> Data {
+        if let mine = readKeychain(service: privateKeychainService) { return mine }
         if let data = try? Data(contentsOf: fileURL) { return data }
-        var query: [String: Any] = [
+        guard let seed = readKeychain(service: keychainService) else {
+            throw FetchFailure(
+                kind: .auth,
+                detail: "找不到 Claude 憑證。請確認已安裝 Claude Code 並執行 `claude auth login`。"
+            )
+        }
+        return seed
+    }
+
+    func readKeychain(service: String) -> Data? {
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
+            kSecAttrService as String: service,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
         var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        query.removeAll()
-        guard status == errSecSuccess, let data = item as? Data else {
-            throw FetchFailure(
-                kind: .auth,
-                detail: status == errSecUserCanceled
-                    ? "你拒絕了 Keychain 存取。需允許本 app 讀取「\(keychainService)」。"
-                    : "找不到 Claude 憑證（OSStatus \(status)）。請確認已安裝 Claude Code 並執行 `claude auth login`。"
-            )
-        }
-        return data
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess else { return nil }
+        return item as? Data
     }
 
+    /// **只寫本 app 自己的項目。** 絕不寫 Claude Code 的 —— 那會重設它的分區清單。
     func persist(_ credentials: [String: Any]) throws {
         let data = try JSONSerialization.data(withJSONObject: credentials)
-        if FileManager.default.fileExists(atPath: fileURL.path) {
-            try data.write(to: fileURL, options: [.atomic])
-            return
-        }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService
+            kSecAttrService as String: privateKeychainService
         ]
-
-        // 不要在這裡動 ACL。曾經以為 SecItemUpdate 會把信任應用程式清單換成只剩自己，
-        // 因而加了「讀出來、寫完再還原」的邏輯 —— 實測推翻：拋棄式項目在
-        // SecItemUpdate 前後，信任清單一模一樣（含 /usr/bin/security）。
-        // 真正的關卡是**分區清單**，見 decisions.md D-015。
-        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        var status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if status == errSecItemNotFound {
+            var insert = query
+            insert[kSecValueData as String] = data
+            status = SecItemAdd(insert as CFDictionary, nil)
+        }
         guard status == errSecSuccess else {
             throw FetchFailure(
                 kind: .auth,
-                detail: "續期成功但寫回 Keychain 失敗（OSStatus \(status)）。"
-                      + "若 refresh token 已輪替，需執行 `claude auth login` 重新登入。"
+                detail: "續期成功但寫入本 app 的 Keychain 項目失敗（OSStatus \(status)）。"
             )
         }
+    }
+
+    /// 自癒：我們的續期鏈斷了（多半是使用者重新登入、把 refresh token 換掉了）。
+    /// 刪掉自己的項目，下次取樣就會回頭從 Claude Code 的項目重新取得憑證。
+    func discardPrivateCredentials() {
+        SecItemDelete([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: privateKeychainService
+        ] as CFDictionary)
+        Self.log.notice("憑證鏈失效，已清除本 app 的 Keychain 項目，下次取樣重新種子")
     }
 }
