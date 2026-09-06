@@ -275,6 +275,18 @@ public final class UsageDatabase: Sendable {
         /// 內容、context 壓縮、換模型等等，從紀錄判斷不出來，不猜。
         public let createdAfterIdle: Int
         public let idleResumes: Int
+        public let inputTokens: Int
+
+        /// 輸入 token 有多少比例來自快取。
+        ///
+        /// **這不是「命中率」** —— prompt caching 沒有 hit / miss 的二元結果，
+        /// 每次請求都是部分命中：能重用的前綴從快取讀，新增的後綴寫進快取。
+        /// 實測 9,784 筆請求裡只有 18 筆完全沒讀到快取，所以「幾成請求有命中」
+        /// 恆等於 99.8%，問了等於沒問。有意義的是「這次有多少比例不用重算」。
+        public var coverage: Double? {
+            let total = readTokens + createdTokens + inputTokens
+            return total > 0 ? Double(readTokens) / Double(total) : nil
+        }
         public var id: String { day + "\u{1}" + project }
 
         /// 只取路徑末兩段，完整路徑留給 tooltip。
@@ -291,7 +303,7 @@ public final class UsageDatabase: Sendable {
                 db,
                 sql: """
                 SELECT day_local, cwd, requests, read_tokens, created_tokens,
-                       created_after_idle, idle_resumes
+                       created_after_idle, idle_resumes, input_tokens
                   FROM v_cache_daily
                  WHERE day_local >= ? AND day_local <= ?
                  ORDER BY day_local DESC, created_tokens DESC
@@ -305,7 +317,8 @@ public final class UsageDatabase: Sendable {
                     readTokens: row["read_tokens"] ?? 0,
                     createdTokens: row["created_tokens"] ?? 0,
                     createdAfterIdle: row["created_after_idle"] ?? 0,
-                    idleResumes: row["idle_resumes"] ?? 0
+                    idleResumes: row["idle_resumes"] ?? 0,
+                    inputTokens: row["input_tokens"] ?? 0
                 )
             }
         }

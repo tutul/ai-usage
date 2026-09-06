@@ -17,6 +17,11 @@ struct CacheTableView: View {
     private var totalIdle: Int { rows.reduce(0) { $0 + $1.createdAfterIdle } }
     private var totalRead: Int { rows.reduce(0) { $0 + $1.readTokens } }
     private var totalRequests: Int { rows.reduce(0) { $0 + $1.requests } }
+    private var totalInput: Int { rows.reduce(0) { $0 + $1.inputTokens } }
+    private var coverage: Double? {
+        let total = totalRead + totalCreated + totalInput
+        return total > 0 ? Double(totalRead) / Double(total) : nil
+    }
     private var totalIdleResumes: Int { rows.reduce(0) { $0 + $1.idleResumes } }
 
     private var days: [(day: String, items: [UsageDatabase.CacheDailyRow])] {
@@ -51,6 +56,9 @@ struct CacheTableView: View {
     private var summary: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top, spacing: 20) {
+                stat("快取涵蓋率",
+                     coverage.map { String(format: "%.1f%%", $0 * 100) } ?? "—",
+                     "輸入有多少不用重算")
                 stat("快取讀取", tokens(totalRead), "便宜的部分")
                 stat("快取寫入", tokens(totalCreated), "貴的部分")
                 stat("其中閒置後重寫", tokens(totalIdle),
@@ -60,6 +68,12 @@ struct CacheTableView: View {
                 stat("請求數", "\(totalRequests)", "")
                 Spacer()
             }
+            Text("涵蓋率不是「命中率」—— prompt caching 沒有 hit／miss，每次請求都是部分命中"
+                 + "（實測只有 0.2% 的請求完全沒讀到快取）。它問的是「這次有多少比例不用重算」。")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+
             if totalCreated > 0, totalRequests > 0 {
                 Text("這段期間 \(totalIdleResumes) 次「隔了超過一小時才回來」的請求，"
                      + "佔了全部快取寫入的 \(Int(100.0 * Double(totalIdle) / Double(totalCreated)))%"
@@ -112,6 +126,7 @@ struct CacheTableView: View {
     private var columnHeader: some View {
         HStack(spacing: 8) {
             Text("專案").frame(width: 190, alignment: .leading)
+            Text("涵蓋率").frame(width: 56, alignment: .trailing)
             Text("寫入").frame(width: 70, alignment: .trailing)
             Text("閒置後").frame(width: 70, alignment: .trailing)
             Text("讀取").frame(width: 78, alignment: .trailing)
@@ -148,6 +163,11 @@ struct CacheTableView: View {
                 .truncationMode(.head)
                 .frame(width: 190, alignment: .leading)
                 .help(row.project)
+
+            Text(row.coverage.map { String(format: "%.1f%%", $0 * 100) } ?? "—")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 56, alignment: .trailing)
 
             Text(tokens(row.createdTokens))
                 .font(.caption.monospacedDigit())
