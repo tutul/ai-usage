@@ -15,6 +15,7 @@ public final class UsageViewModel {
     public var granularity: Granularity = .hour
     /// 最近一次對話紀錄匯入的結果，供 UI 顯示「匯入了幾筆」。
     public var cacheImport: UsageDatabase.ImportResult?
+    public var cacheRows: [UsageDatabase.CacheDailyRow] = []
 
     /// 顯示範圍（含頭含尾，以當地日為單位）。放在 model 而非 view 的 @State，
     /// 這樣關掉視窗再開還在。
@@ -82,6 +83,12 @@ public final class UsageViewModel {
                 )
             }
             buckets = loaded
+            let day = DateFormatter()
+            day.calendar = calendar
+            day.dateFormat = "yyyy-MM-dd"
+            cacheRows = (try? database.cacheDaily(
+                from: day.string(from: rangeStart), to: day.string(from: rangeEnd)
+            )) ?? []
             var currentFailures: [Service: (kind: String, detail: String)] = [:]
             for service in Service.allCases {
                 if let failure = try database.currentFailure(service: service) {

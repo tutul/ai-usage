@@ -16,6 +16,8 @@ public struct HistoryChartView: View {
     /// 只重讀 DB 在沒有新樣本時什麼都不會變。
     let onRefresh: () async -> Void
 
+    enum Tab: String, CaseIterable { case usage = "用量", cache = "快取" }
+    @State private var tab: Tab = .usage
     @State private var service: Service = .claude
     @State private var hoveredBucketStart: Date?
     @State private var isRefreshing = false
@@ -33,6 +35,31 @@ public struct HistoryChartView: View {
     private var chartUnit: Calendar.Component { granularity == .hour ? .hour : .day }
 
     public var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("分頁", selection: $tab) {
+                ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+
+            if tab == .cache {
+                rangeBar
+                CacheTableView(model: model)
+            } else {
+                usageTab
+            }
+        }
+        .padding(16)
+        .onChange(of: appearsActive) { _, active in
+            // 切回這個視窗時把資料庫最新狀態畫出來
+            if active { model.reload() }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(minWidth: 640, minHeight: 620)
+    }
+
+    private var usageTab: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
             rangeBar
@@ -56,13 +83,6 @@ public struct HistoryChartView: View {
             Divider()
             fetchLog
         }
-        .padding(16)
-        .onChange(of: appearsActive) { _, active in
-            // 切回這個視窗時把資料庫最新狀態畫出來
-            if active { model.reload() }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .frame(minWidth: 640, minHeight: 620)
     }
 
     // MARK: - 標題列
@@ -129,6 +149,17 @@ public struct HistoryChartView: View {
                 })
     }
 
+    /// 下界取「最早的樣本」與目前起日的較早者 —— 不能大於 `rangeStart`，
+    /// 否則 `in:` 會是反向區間而當掉。
+    private var pickerLowerBound: Date {
+        let earliest = model.earliestSample ?? model.rangeStart
+        return min(Calendar.current.startOfDay(for: earliest), model.rangeStart)
+    }
+
+    private var pickerUpperBound: Date {
+        max(Calendar.current.startOfDay(for: .now), model.rangeEnd)
+    }
+
     private func setRange(daysBack: Int) {
         let today = Calendar.current.startOfDay(for: .now)
         model.rangeEnd = today
@@ -143,13 +174,17 @@ public struct HistoryChartView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            DatePicker("起", selection: startBinding, in: ...model.rangeEnd, displayedComponents: .date)
+            // 兩端都給明確界線。開放式區間（`...end` / `start...`）搭配 macOS 的
+            // stepper 欄位會在首次渲染時把值歸到界線上，把範圍縮成單一天。
+            DatePicker("起", selection: startBinding,
+                       in: pickerLowerBound...model.rangeEnd, displayedComponents: .date)
                 .labelsHidden()
                 .fixedSize()
 
             Text("–").foregroundStyle(.secondary)
 
-            DatePicker("迄", selection: endBinding, in: model.rangeStart..., displayedComponents: .date)
+            DatePicker("迄", selection: endBinding,
+                       in: model.rangeStart...pickerUpperBound, displayedComponents: .date)
                 .labelsHidden()
                 .fixedSize()
 

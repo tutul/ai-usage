@@ -264,6 +264,53 @@ public final class UsageDatabase: Sendable {
     }
 
     /// 最近的取樣嘗試，成功與失敗都包含 —— 日誌的價值就在於看得到失敗。
+    /// `v_cache_daily` 的一列：某專案在某一天的 token 分解。
+    public struct CacheDailyRow: Sendable, Hashable, Identifiable {
+        public let day: String
+        public let project: String
+        public let requests: Int
+        public let readTokens: Int
+        public let createdTokens: Int
+        /// 其中「距上次請求超過 TTL」的部分。**其餘寫入不歸因** —— 可能來自改動前面的
+        /// 內容、context 壓縮、換模型等等，從紀錄判斷不出來，不猜。
+        public let createdAfterIdle: Int
+        public let idleResumes: Int
+        public var id: String { day + "\u{1}" + project }
+
+        /// 只取路徑末兩段，完整路徑留給 tooltip。
+        public var shortProject: String {
+            let parts = project.split(separator: "/")
+            return parts.suffix(2).joined(separator: "/")
+        }
+    }
+
+    /// 日期以本地日字串比較（`YYYY-MM-DD` 可直接字典序比較）。
+    public func cacheDaily(from: String, to: String) throws -> [CacheDailyRow] {
+        try pool.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                SELECT day_local, cwd, requests, read_tokens, created_tokens,
+                       created_after_idle, idle_resumes
+                  FROM v_cache_daily
+                 WHERE day_local >= ? AND day_local <= ?
+                 ORDER BY day_local DESC, created_tokens DESC
+                """,
+                arguments: [from, to]
+            ).map { row in
+                CacheDailyRow(
+                    day: row["day_local"],
+                    project: row["cwd"] ?? "(未知)",
+                    requests: row["requests"] ?? 0,
+                    readTokens: row["read_tokens"] ?? 0,
+                    createdTokens: row["created_tokens"] ?? 0,
+                    createdAfterIdle: row["created_after_idle"] ?? 0,
+                    idleResumes: row["idle_resumes"] ?? 0
+                )
+            }
+        }
+    }
+
     // MARK: - 對話紀錄匯入
 
     public struct ImportResult: Sendable {
