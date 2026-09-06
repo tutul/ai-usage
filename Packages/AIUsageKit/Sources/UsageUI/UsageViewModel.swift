@@ -16,6 +16,7 @@ public final class UsageViewModel {
     /// 最近一次對話紀錄匯入的結果，供 UI 顯示「匯入了幾筆」。
     public var cacheImport: UsageDatabase.ImportResult?
     public var cacheRows: [UsageDatabase.CacheDailyRow] = []
+    public private(set) var isImporting = false
 
     /// 顯示範圍（含頭含尾，以當地日為單位）。放在 model 而非 view 的 @State，
     /// 這樣關掉視窗再開還在。
@@ -57,6 +58,19 @@ public final class UsageViewModel {
             rangeStart = Calendar.current.startOfDay(for: earliest)
         }
         rangeEnd = Calendar.current.startOfDay(for: .now)
+        reload()
+    }
+
+    /// 手動匯入對話紀錄。掃的是使用者全部的 JSONL，會做檔案 I/O，
+    /// 所以丟到背景執行，不要卡住 UI。
+    public func importTranscripts() async {
+        guard !isImporting else { return }
+        isImporting = true
+        let db = database
+        cacheImport = await Task.detached(priority: .userInitiated) {
+            try? db.importTranscripts()
+        }.value
+        isImporting = false
         reload()
     }
 

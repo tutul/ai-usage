@@ -22,13 +22,6 @@ final class AppState {
             model.samplingInterval = Self.samplingInterval
             model.reload()
 
-            // 對話紀錄匯入。可重複執行（INSERT OR IGNORE），所以不需要記錄讀到哪裡；
-            // 放背景是因為它讀的是使用者全部的 JSONL，不該擋住啟動。
-            Task.detached(priority: .utility) {
-                if let result = try? database.importTranscripts() {
-                    await MainActor.run { model.cacheImport = result }
-                }
-            }
 
             let sampler = Sampler(
                 database: database,

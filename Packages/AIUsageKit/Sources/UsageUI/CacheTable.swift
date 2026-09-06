@@ -35,7 +35,7 @@ struct CacheTableView: View {
                 ContentUnavailableView(
                     "這個範圍內沒有對話紀錄",
                     systemImage: "tray",
-                    description: Text("紀錄來自 ~/.claude/projects 的 JSONL，換個日期範圍看看。")
+                    description: Text("按右上角的「匯入」掃描 ~/.claude/projects 的 JSONL，或換個日期範圍。")
                 )
                 .frame(maxHeight: .infinity)
             } else {

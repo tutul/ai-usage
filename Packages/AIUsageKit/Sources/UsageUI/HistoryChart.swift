@@ -203,9 +203,36 @@ public struct HistoryChartView: View {
 
             Spacer()
 
-            Text("\(buckets.count) 個\(granularity.displayName)區間")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            // 「N 個小時區間」講的是用量取樣，放在快取分頁會誤導。
+            if tab == .cache {
+                importControl
+            } else {
+                Text("\(buckets.count) 個\(granularity.displayName)區間")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private var importControl: some View {
+        HStack(spacing: 8) {
+            if let result = model.cacheImport {
+                Text(result.inserted > 0 ? "新增 \(result.inserted) 筆" : "沒有新紀錄")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            Button {
+                Task { await model.importTranscripts() }
+            } label: {
+                if model.isImporting {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Label("匯入", systemImage: "square.and.arrow.down")
+                        .font(.caption)
+                }
+            }
+            .disabled(model.isImporting)
+            .help("重新掃描 ~/.claude/projects 的 JSONL。可重複執行，不會產生重複資料。")
         }
     }
 
