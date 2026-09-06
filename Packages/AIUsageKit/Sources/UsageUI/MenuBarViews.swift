@@ -8,15 +8,18 @@ public struct MenuBarContent: View {
     let onOpenHistory: () -> Void
 
     let launchAtLogin: LaunchAtLogin
+    let tracking: TrackingSettings
 
     public init(
         model: UsageViewModel,
         launchAtLogin: LaunchAtLogin,
+        tracking: TrackingSettings,
         onRefresh: @escaping () -> Void,
         onOpenHistory: @escaping () -> Void
     ) {
         self.model = model
         self.launchAtLogin = launchAtLogin
+        self.tracking = tracking
         self.onRefresh = onRefresh
         self.onOpenHistory = onOpenHistory
     }
@@ -25,12 +28,35 @@ public struct MenuBarContent: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("本週用量").font(.headline)
 
-            ForEach(Service.allCases, id: \.self) { service in
-                ServiceRow(service: service, model: model)
+            if tracking.enabledServices.isEmpty {
+                Text("尚未啟用任何服務。在下方勾選要追蹤的項目。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(tracking.enabledServices, id: \.self) { service in
+                    ServiceRow(service: service, model: model)
+                }
             }
 
             if let error = model.loadError {
                 Text(error).font(.caption).foregroundStyle(.red).lineLimit(2)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("追蹤的服務").font(.caption).foregroundStyle(.secondary)
+                ForEach(Service.allCases, id: \.self) { service in
+                    Toggle(service.displayName, isOn: Binding(
+                        get: { tracking.isEnabled(service) },
+                        set: { tracking.setEnabled(service, $0) }
+                    ))
+                    .toggleStyle(.checkbox)
+                    .font(.callout)
+                }
+                Text("關掉只是不再抓取，已記錄的歷史不會刪除。")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
 
             Divider()

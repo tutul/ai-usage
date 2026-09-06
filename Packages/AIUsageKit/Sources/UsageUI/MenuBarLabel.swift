@@ -5,14 +5,21 @@ import UsageCore
 /// 狀態靠顏色與符號傳達，細節點開才看。
 public struct MenuBarLabel: View {
     let model: UsageViewModel
-    public init(model: UsageViewModel) { self.model = model }
+    let tracking: TrackingSettings
+    public init(model: UsageViewModel, tracking: TrackingSettings) {
+        self.model = model
+        self.tracking = tracking
+    }
+
+    /// 只看已啟用的服務 —— 沒訂閱的那家會一直 auth 失敗，不該讓 menu bar 常亮警示。
+    private var services: [Service] { tracking.enabledServices }
 
     /// 只有「真的壞了」才示警。憑證過期屬良性，放個週末回來不該看到警告三角。
-    var anyBroken: Bool { Service.allCases.contains { model.needsAttention($0) } }
-    var anyStale: Bool { Service.allCases.contains { model.isStale($0) } }
+    var anyBroken: Bool { services.contains { model.needsAttention($0) } }
+    var anyStale: Bool { services.contains { model.isStale($0) } }
 
     var maxPercent: Double {
-        Service.allCases.compactMap { model.weekly(for: $0)?.percent }.max() ?? 0
+        services.compactMap { model.weekly(for: $0)?.percent }.max() ?? 0
     }
 
     var symbol: String {

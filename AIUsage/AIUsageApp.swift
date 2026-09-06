@@ -12,6 +12,7 @@ final class AppState {
     private(set) var model: UsageViewModel?
     private(set) var sampler: Sampler?
     private(set) var startupError: String?
+    private(set) var tracking = TrackingSettings()
 
     static let samplingInterval: TimeInterval = 300
 
@@ -23,16 +24,19 @@ final class AppState {
             model.reload()
 
 
+            let tracking = TrackingSettings()
             let sampler = Sampler(
                 database: database,
                 providers: [ClaudeProvider(), CodexProvider()],
                 model: model,
+                tracking: tracking,
                 interval: Self.samplingInterval
             )
             sampler.start()
 
             self.model = model
             self.sampler = sampler
+            self.tracking = tracking
         } catch {
             self.startupError = "無法開啟資料庫：\(error)"
         }
@@ -81,6 +85,7 @@ struct AIUsageApp: App {
                 MenuBarContent(
                     model: model,
                     launchAtLogin: launchAtLogin,
+                    tracking: state.tracking,
                     onRefresh: { state.refreshNow() },
                     onOpenHistory: { showHistory() }
                 )
@@ -96,7 +101,7 @@ struct AIUsageApp: App {
             }
         } label: {
             if let model = state.model {
-                MenuBarLabel(model: model)
+                MenuBarLabel(model: model, tracking: state.tracking)
             } else {
                 Text("AI —")
             }
@@ -105,7 +110,10 @@ struct AIUsageApp: App {
 
         Window("用量歷史", id: "history") {
             if let model = state.model {
-                HistoryChartView(model: model, onRefresh: { await state.refresh() })
+                HistoryChartView(
+                    model: model, tracking: state.tracking,
+                    onRefresh: { await state.refresh() }
+                )
                     .task { model.reload() }
             } else {
                 Text(state.startupError ?? "尚未就緒").padding()

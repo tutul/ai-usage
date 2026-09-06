@@ -18,11 +18,19 @@ final class Sampler {
     private let interval: TimeInterval
     private var scheduler: NSBackgroundActivityScheduler?
     private var wakeObserver: (any NSObjectProtocol)?
+    let tracking: TrackingSettings
 
-    init(database: UsageDatabase, providers: [any UsageProvider], model: UsageViewModel, interval: TimeInterval) {
+    init(
+        database: UsageDatabase,
+        providers: [any UsageProvider],
+        model: UsageViewModel,
+        tracking: TrackingSettings,
+        interval: TimeInterval
+    ) {
         self.database = database
         self.providers = providers
         self.model = model
+        self.tracking = tracking
         self.interval = interval
     }
 
@@ -61,8 +69,10 @@ final class Sampler {
     }
 
     /// 一個 provider 失敗不影響另一個 —— Codex 掛掉不該讓 Claude 也停止記錄。
+    ///
+    /// 每次取樣都重新讀設定，所以使用者切換「追蹤的服務」立即生效，不必重啟。
     func sampleAll() async {
-        for provider in providers {
+        for provider in providers where tracking.isEnabled(provider.service) {
             let startedAt = Date()
             let snapshot: UsageSnapshot
             do {

@@ -12,6 +12,7 @@ import UsageStore
 /// - 線斷開／完全空白：沒有取樣。**不補值、不連過去**
 public struct HistoryChartView: View {
     let model: UsageViewModel
+    let tracking: TrackingSettings
     /// 重新取樣（而非只是重讀資料庫）—— 使用者按重新整理時想看的是「現在的用量」，
     /// 只重讀 DB 在沒有新樣本時什麼都不會變。
     let onRefresh: () async -> Void
@@ -23,8 +24,13 @@ public struct HistoryChartView: View {
     @State private var isRefreshing = false
     @Environment(\.appearsActive) private var appearsActive
 
-    public init(model: UsageViewModel, onRefresh: @escaping () async -> Void) {
+    public init(
+        model: UsageViewModel,
+        tracking: TrackingSettings,
+        onRefresh: @escaping () async -> Void
+    ) {
         self.model = model
+        self.tracking = tracking
         self.onRefresh = onRefresh
     }
 
@@ -89,13 +95,20 @@ public struct HistoryChartView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
+            // 只列已啟用的服務。歷史資料不會消失 —— 重新啟用就看得到。
             Picker("服務", selection: $service) {
-                ForEach(Service.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                ForEach(tracking.enabledServices, id: \.self) { Text($0.displayName).tag($0) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .fixedSize()
             .onChange(of: service) { hoveredBucketStart = nil }
+            // 選中的服務被關掉時，Picker 會停在一個不存在的選項上、看起來像壞了。
+            .onChange(of: tracking.enabled) { _, _ in
+                if !tracking.isEnabled(service), let first = tracking.enabledServices.first {
+                    service = first
+                }
+            }
 
             Picker("粒度", selection: Binding(
                 get: { model.granularity },
