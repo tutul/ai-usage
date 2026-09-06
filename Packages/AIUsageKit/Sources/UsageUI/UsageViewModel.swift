@@ -13,6 +13,8 @@ public final class UsageViewModel {
     /// 日誌還有更多可載入。多要一筆來判斷，避免另外查一次 COUNT。
     public private(set) var hasMoreFetches = false
     public var granularity: Granularity = .hour
+    /// 最近一次對話紀錄匯入的結果，供 UI 顯示「匯入了幾筆」。
+    public var cacheImport: UsageDatabase.ImportResult?
 
     /// 顯示範圍（含頭含尾，以當地日為單位）。放在 model 而非 view 的 @State，
     /// 這樣關掉視窗再開還在。

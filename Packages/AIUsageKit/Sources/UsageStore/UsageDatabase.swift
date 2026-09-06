@@ -264,6 +264,73 @@ public final class UsageDatabase: Sendable {
     }
 
     /// 最近的取樣嘗試，成功與失敗都包含 —— 日誌的價值就在於看得到失敗。
+    // MARK: - 對話紀錄匯入
+
+    public struct ImportResult: Sendable {
+        public let files: Int
+        public let parsed: Int
+        public let inserted: Int
+    }
+
+    public static func defaultTranscriptRoot() -> URL {
+        URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".claude/projects")
+    }
+
+    /// 掃描 Claude Code 的 JSONL 對話紀錄並匯入。
+    ///
+    /// **可重複執行**：以 `request_key` 為主鍵、`INSERT OR IGNORE`，
+    /// 所以持續匯入不會產生重複，也不需要記錄「上次讀到哪裡」。
+    /// 代價是每次都重讀全部檔案 —— 實測 24 個檔、約 1.7 萬行，成本可忽略。
+    @discardableResult
+    public func importTranscripts(root: URL? = nil) throws -> ImportResult {
+        let base = root ?? Self.defaultTranscriptRoot()
+        let manager = FileManager.default
+        guard let projects = try? manager.contentsOfDirectory(at: base, includingPropertiesForKeys: nil) else {
+            return ImportResult(files: 0, parsed: 0, inserted: 0)
+        }
+        var files = 0, parsed = 0, inserted = 0
+        for project in projects {
+            let logs = (try? manager.contentsOfDirectory(at: project, includingPropertiesForKeys: nil)) ?? []
+            for log in logs where log.pathExtension == "jsonl" {
+                guard let text = try? String(contentsOf: log, encoding: .utf8) else { continue }
+                files += 1
+                var batch: [CacheRequest] = []
+                for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+                    if let request = TranscriptParser.parse(line: String(line)) { batch.append(request) }
+                }
+                parsed += batch.count
+                inserted += try insert(batch)
+            }
+        }
+        return ImportResult(files: files, parsed: parsed, inserted: inserted)
+    }
+
+    private func insert(_ requests: [CacheRequest]) throws -> Int {
+        guard !requests.isEmpty else { return 0 }
+        return try pool.write { db in
+            var added = 0
+            for r in requests {
+                try db.execute(
+                    sql: """
+                    INSERT OR IGNORE INTO cache_request
+                      (request_key, session_id, cwd, git_branch, observed_at,
+                       input_tokens, cache_creation_tokens, cache_read_tokens,
+                       output_tokens, ttl_5m_tokens, ttl_1h_tokens)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    arguments: [
+                        r.requestKey, r.sessionID, r.cwd, r.gitBranch,
+                        Int(r.observedAt.timeIntervalSince1970),
+                        r.inputTokens, r.cacheCreationTokens, r.cacheReadTokens,
+                        r.outputTokens, r.ttl5mTokens, r.ttl1hTokens
+                    ]
+                )
+                added += db.changesCount
+            }
+            return added
+        }
+    }
+
     /// 最早的樣本時間，供「全部」與日期選擇器的下界用。
     public func earliestSample() throws -> Date? {
         try pool.read { db in
