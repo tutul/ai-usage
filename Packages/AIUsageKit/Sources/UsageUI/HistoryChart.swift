@@ -17,7 +17,7 @@ public struct HistoryChartView: View {
     /// 只重讀 DB 在沒有新樣本時什麼都不會變。
     let onRefresh: () async -> Void
 
-    enum Tab: String, CaseIterable { case usage = "用量", cache = "快取" }
+    enum Tab: String, CaseIterable { case usage = "用量", cache = "快取（Claude）" }
     @State private var tab: Tab = .usage
     @State private var service: Service = .claude
     @State private var hoveredBucketStart: Date?

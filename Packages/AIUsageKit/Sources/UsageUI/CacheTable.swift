@@ -38,12 +38,16 @@ struct CacheTableView: View {
         VStack(alignment: .leading, spacing: 10) {
             if rows.isEmpty {
                 ContentUnavailableView(
-                    "這個範圍內沒有對話紀錄",
+                    "這個範圍內沒有 Claude 的對話紀錄",
                     systemImage: "tray",
                     description: Text("按右上角的「匯入」掃描 ~/.claude/projects 的 JSONL，或換個日期範圍。")
                 )
                 .frame(maxHeight: .infinity)
             } else {
+                Text("資料來源：Claude Code 的對話紀錄（`~/.claude/projects`）。"
+                     + "**目前只涵蓋 Claude**，不含 Codex。")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
                 summary
                 Divider()
                 table
