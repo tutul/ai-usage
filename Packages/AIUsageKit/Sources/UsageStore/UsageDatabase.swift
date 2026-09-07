@@ -17,11 +17,36 @@ public struct CurrentReading: Sendable, Hashable {
 public enum Granularity: String, Sendable, CaseIterable, Hashable {
     case hour
     case day
+    case week
 
-    var view: String { self == .hour ? "v_hourly" : "v_daily" }
-    var keyColumn: String { self == .hour ? "hour_local" : "day_local" }
-    var epochColumn: String { self == .hour ? "hour_start_epoch" : "day_start_epoch" }
-    public var displayName: String { self == .hour ? "小時" : "日" }
+    var view: String {
+        switch self {
+        case .hour: "v_hourly"
+        case .day:  "v_daily"
+        case .week: "v_weekly"
+        }
+    }
+    var keyColumn: String {
+        switch self {
+        case .hour: "hour_local"
+        case .day:  "day_local"
+        case .week: "week_local"
+        }
+    }
+    var epochColumn: String {
+        switch self {
+        case .hour: "hour_start_epoch"
+        case .day:  "day_start_epoch"
+        case .week: "week_start_epoch"
+        }
+    }
+    public var displayName: String {
+        switch self {
+        case .hour: "小時"
+        case .day:  "日"
+        case .week: "週"
+        }
+    }
 }
 
 /// 分桶消耗。小時與日共用同一型別 —— 兩者的欄位語意完全相同，

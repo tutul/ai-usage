@@ -36,9 +36,21 @@ public struct HistoryChartView: View {
 
     private var granularity: Granularity { model.granularity }
     private var buckets: [UsageBucket] { model.buckets[service] ?? [] }
-    private var bucketSeconds: TimeInterval { granularity == .hour ? 3600 : 86_400 }
-    private var calendarUnit: Calendar.Component { granularity == .hour ? .hour : .day }
-    private var chartUnit: Calendar.Component { granularity == .hour ? .hour : .day }
+    private var bucketSeconds: TimeInterval {
+        switch granularity {
+        case .hour: 3600
+        case .day:  86_400
+        case .week: 604_800
+        }
+    }
+    private var calendarUnit: Calendar.Component {
+        switch granularity {
+        case .hour: .hour
+        case .day:  .day
+        case .week: .weekOfYear
+        }
+    }
+    private var chartUnit: Calendar.Component { calendarUnit }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -112,7 +124,14 @@ public struct HistoryChartView: View {
 
             Picker("粒度", selection: Binding(
                 get: { model.granularity },
-                set: { model.granularity = $0; hoveredBucketStart = nil; model.reload() }
+                set: { granularity in
+                    model.granularity = granularity
+                    hoveredBucketStart = nil
+                    // 預設範圍是七天，切到週粒度只會框到一個曆週、圖上一個點。
+                    // **只擴不縮**，所以不會弄丟使用者原本正在看的區間。
+                    if granularity == .week { widenRangeAtLeast(days: 56) }
+                    model.reload()
+                }
             )) {
                 ForEach(Granularity.allCases, id: \.self) { Text($0.displayName).tag($0) }
             }
@@ -173,6 +192,14 @@ public struct HistoryChartView: View {
         max(Calendar.current.startOfDay(for: .now), model.rangeEnd)
     }
 
+    /// 把起日往前推到至少涵蓋 `days` 天。已經更早就不動。
+    private func widenRangeAtLeast(days: Int) {
+        let calendar = Calendar.current
+        guard let target = calendar.date(byAdding: .day, value: -days, to: model.rangeEnd),
+              target < model.rangeStart else { return }
+        model.rangeStart = calendar.startOfDay(for: target)
+    }
+
     private func setRange(daysBack: Int) {
         let today = Calendar.current.startOfDay(for: .now)
         model.rangeEnd = today
@@ -206,6 +233,9 @@ public struct HistoryChartView: View {
                 Button("近 3 天") { setRange(daysBack: 2) }
                 Button("近 7 天") { setRange(daysBack: 6) }
                 Button("近 30 天") { setRange(daysBack: 29) }
+                Divider()
+                Button("近 4 週") { setRange(daysBack: 27) }
+                Button("近 12 週") { setRange(daysBack: 83) }
                 Divider()
                 Button("全部") { hoveredBucketStart = nil; model.showAllRange() }
             } label: {
@@ -257,6 +287,11 @@ public struct HistoryChartView: View {
             return (1, calendarUnit)
         }
         let span = last.timeIntervalSince(first)
+        // Swift Charts 的 `.stride(by:)` 不吃 `.weekOfYear`（給了會完全不畫刻度），
+        // 用等價的 7 天。
+        if granularity == .week {
+            return (7, .day)
+        }
         if granularity == .day {
             return (span / 86_400 < 15 ? 1 : (span / 86_400 < 60 ? 7 : 14), .day)
         }
@@ -387,9 +422,9 @@ public struct HistoryChartView: View {
                 AxisTick()
                 if let date = value.as(Date.self) {
                     AxisValueLabel {
-                        Text(date, format: granularity == .day
-                             ? .dateTime.month(.defaultDigits).day()
-                             : .dateTime.hour())
+                        Text(date, format: granularity == .hour
+                             ? .dateTime.hour()
+                             : .dateTime.month(.defaultDigits).day())
                             .font(.caption2)
                     }
                 }
@@ -477,10 +512,18 @@ public struct HistoryChartView: View {
     @ViewBuilder
     private func tooltip(_ start: Date, bucket: UsageBucket?) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(start, format: granularity == .hour
-                 ? .dateTime.month().day().hour()
-                 : .dateTime.year().month().day())
-                .font(.caption.weight(.semibold))
+            // 週粒度標成「X/Y 那一週」，否則只看到一個日期會以為是單日。
+            Group {
+                switch granularity {
+                case .hour:
+                    Text(start, format: .dateTime.month().day().hour())
+                case .day:
+                    Text(start, format: .dateTime.year().month().day())
+                case .week:
+                    Text(start, format: .dateTime.month().day()) + Text(" 那一週")
+                }
+            }
+            .font(.caption.weight(.semibold))
             if let bucket {
                 if let used = bucket.usedPercent, used > 0 {
                     row("已歸屬", value: used, color: .accentColor)
