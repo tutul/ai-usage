@@ -322,7 +322,10 @@ public final class UsageDatabase: Sendable {
     }
 
     /// 日期以本地日字串比較（`YYYY-MM-DD` 可直接字典序比較）。
-    public func cacheDaily(from: String, to: String) throws -> [CacheDailyRow] {
+    ///
+    /// **一次只查一個服務。** 兩家的快取機制不同（Codex 沒有 TTL 分解、
+    /// 「閒置後重寫」對它不成立），混在同一組摘要數字裡會失去意義。
+    public func cacheDaily(service: Service, from: String, to: String) throws -> [CacheDailyRow] {
         try pool.read { db in
             try Row.fetchAll(
                 db,
@@ -330,10 +333,10 @@ public final class UsageDatabase: Sendable {
                 SELECT day_local, cwd, requests, read_tokens, created_tokens,
                        created_after_idle, idle_resumes, input_tokens
                   FROM v_cache_daily
-                 WHERE day_local >= ? AND day_local <= ?
+                 WHERE service = ? AND day_local >= ? AND day_local <= ?
                  ORDER BY day_local DESC, created_tokens DESC
                 """,
-                arguments: [from, to]
+                arguments: [service.rawValue, from, to]
             ).map { row in
                 CacheDailyRow(
                     day: row["day_local"],
@@ -361,6 +364,14 @@ public final class UsageDatabase: Sendable {
         URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".claude/projects")
     }
 
+    /// Codex 把進行中的 session 放 `sessions/<年>/<月>/<日>/`，結束的搬到
+    /// `archived_sessions/`。兩處都要掃，否則今天的資料會漏。
+    public static func defaultCodexRoots() -> [URL] {
+        let home = URL(fileURLWithPath: NSHomeDirectory())
+        return [home.appending(path: ".codex/sessions"),
+                home.appending(path: ".codex/archived_sessions")]
+    }
+
     /// 掃描 Claude Code 的 JSONL 對話紀錄並匯入。
     ///
     /// **可重複執行**：以 `request_key` 為主鍵、`INSERT OR IGNORE`，
@@ -370,10 +381,28 @@ public final class UsageDatabase: Sendable {
     public func importTranscripts(root: URL? = nil) throws -> ImportResult {
         let base = root ?? Self.defaultTranscriptRoot()
         let manager = FileManager.default
-        guard let projects = try? manager.contentsOfDirectory(at: base, includingPropertiesForKeys: nil) else {
-            return ImportResult(files: 0, parsed: 0, inserted: 0)
-        }
         var files = 0, parsed = 0, inserted = 0
+
+        // Codex：目錄有年／月／日的巢狀結構，用 enumerator 一次走完。
+        for codexRoot in Self.defaultCodexRoots() {
+            guard let walker = manager.enumerator(at: codexRoot, includingPropertiesForKeys: nil)
+            else { continue }
+            for case let url as URL in walker
+            where url.pathExtension == "jsonl" && url.lastPathComponent.hasPrefix("rollout-") {
+                guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                files += 1
+                let batch = CodexTranscriptParser.parse(
+                    lines: text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init),
+                    sessionID: CodexTranscriptParser.sessionID(fromFileName: url.lastPathComponent)
+                )
+                parsed += batch.count
+                inserted += try insert(batch)
+            }
+        }
+
+        // 只有 Codex 的使用者沒有這個目錄 —— 不能因此整個 return，
+        // 那會讓 Codex 也一起被跳過。
+        let projects = (try? manager.contentsOfDirectory(at: base, includingPropertiesForKeys: nil)) ?? []
         for project in projects {
             let logs = (try? manager.contentsOfDirectory(at: project, includingPropertiesForKeys: nil)) ?? []
             for log in logs where log.pathExtension == "jsonl" {
@@ -398,13 +427,13 @@ public final class UsageDatabase: Sendable {
                 try db.execute(
                     sql: """
                     INSERT OR IGNORE INTO cache_request
-                      (request_key, session_id, cwd, git_branch, observed_at,
+                      (request_key, service, session_id, cwd, git_branch, observed_at,
                        input_tokens, cache_creation_tokens, cache_read_tokens,
                        output_tokens, ttl_5m_tokens, ttl_1h_tokens)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     arguments: [
-                        r.requestKey, r.sessionID, r.cwd, r.gitBranch,
+                        r.requestKey, r.service.rawValue, r.sessionID, r.cwd, r.gitBranch,
                         Int(r.observedAt.timeIntervalSince1970),
                         r.inputTokens, r.cacheCreationTokens, r.cacheReadTokens,
                         r.outputTokens, r.ttl5mTokens, r.ttl1hTokens

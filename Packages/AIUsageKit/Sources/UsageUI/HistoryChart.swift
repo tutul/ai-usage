@@ -17,7 +17,7 @@ public struct HistoryChartView: View {
     /// 只重讀 DB 在沒有新樣本時什麼都不會變。
     let onRefresh: () async -> Void
 
-    enum Tab: String, CaseIterable { case usage = "用量", cache = "快取（Claude）" }
+    enum Tab: String, CaseIterable { case usage = "用量", cache = "快取" }
     @State private var tab: Tab = .usage
     @State private var service: Service = .claude
     @State private var hoveredBucketStart: Date?
@@ -104,6 +104,7 @@ public struct HistoryChartView: View {
             .fixedSize()
 
             if tab == .cache {
+                cacheServicePicker
                 rangeBar
                 CacheTableView(model: model)
             } else {
@@ -204,6 +205,20 @@ public struct HistoryChartView: View {
             .disabled(isRefreshing)
             .help("重新取樣並更新圖表")
         }
+    }
+
+    /// 快取分頁自己的服務選擇。與用量分頁分開 —— 兩者關心的東西不同，
+    /// 而且兩家的快取機制不同、摘要數字不可混算。
+    private var cacheServicePicker: some View {
+        Picker("服務", selection: Binding(
+            get: { model.cacheService },
+            set: { model.cacheService = $0; model.reload() }
+        )) {
+            ForEach(tracking.enabledServices, id: \.self) { Text($0.displayName).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
     }
 
     // MARK: - 顯示範圍

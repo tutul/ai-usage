@@ -38,16 +38,18 @@ struct CacheTableView: View {
         VStack(alignment: .leading, spacing: 10) {
             if rows.isEmpty {
                 ContentUnavailableView(
-                    "這個範圍內沒有 Claude 的對話紀錄",
+                    "這個範圍內沒有\(model.cacheService.displayName)的對話紀錄",
                     systemImage: "tray",
                     description: Text("按右上角的「匯入」掃描 ~/.claude/projects 的 JSONL，或換個日期範圍。")
                 )
                 .frame(maxHeight: .infinity)
             } else {
-                Text("資料來源：Claude Code 的對話紀錄（`~/.claude/projects`）。"
-                     + "**目前只涵蓋 Claude**，不含 Codex。")
+                Text(model.cacheService == .claude
+                     ? "資料來源：Claude Code 的對話紀錄（`~/.claude/projects`）。"
+                     : "資料來源：Codex 的 session 紀錄（`~/.codex/sessions`、`archived_sessions`）。**「閒置後」對 Codex 一律留白** —— 它的紀錄沒有快取 TTL，套用 Claude 的一小時門檻只是在編。")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
                 summary
                 Divider()
                 table
@@ -72,13 +74,15 @@ struct CacheTableView: View {
                 stat("請求數", "\(totalRequests)", "")
                 Spacer()
             }
-            Text("涵蓋率不是「命中率」—— prompt caching 沒有 hit／miss，每次請求都是部分命中"
-                 + "（實測只有 0.2% 的請求完全沒讀到快取）。它問的是「這次有多少比例不用重算」。")
+            // 「0.2%」是 Claude 的實測值，不可掛在 Codex 頁上。
+            Text(model.cacheService == .claude
+                 ? "涵蓋率不是「命中率」—— prompt caching 沒有 hit／miss，每次請求都是部分命中（實測只有 0.2% 的請求完全沒讀到快取）。它問的是「這次有多少比例不用重算」。"
+                 : "涵蓋率不是「命中率」—— 每次請求都是部分命中，它問的是「這次有多少比例不用重算」。")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if totalCreated > 0, totalRequests > 0 {
+            if totalCreated > 0, totalRequests > 0, model.cacheService == .claude {
                 Text("這段期間 \(totalIdleResumes) 次「隔了超過一小時才回來」的請求，"
                      + "佔了全部快取寫入的 \(Int(100.0 * Double(totalIdle) / Double(totalCreated)))%"
                      + "（請求數只佔 \(String(format: "%.1f", 100.0 * Double(totalIdleResumes) / Double(totalRequests)))%）。"

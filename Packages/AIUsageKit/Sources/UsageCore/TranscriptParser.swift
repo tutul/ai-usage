@@ -4,6 +4,7 @@ import Foundation
 public struct CacheRequest: Sendable, Hashable {
     /// 去重鍵。見 `TranscriptParser.parse` 的說明。
     public let requestKey: String
+    public let service: Service
     public let sessionID: String?
     public let cwd: String?
     public let gitBranch: String?
@@ -16,11 +17,12 @@ public struct CacheRequest: Sendable, Hashable {
     public let ttl1hTokens: Int
 
     public init(
-        requestKey: String, sessionID: String?, cwd: String?, gitBranch: String?,
+        requestKey: String, service: Service, sessionID: String?, cwd: String?, gitBranch: String?,
         observedAt: Date, inputTokens: Int, cacheCreationTokens: Int,
         cacheReadTokens: Int, outputTokens: Int, ttl5mTokens: Int, ttl1hTokens: Int
     ) {
         self.requestKey = requestKey
+        self.service = service
         self.sessionID = sessionID
         self.cwd = cwd
         self.gitBranch = gitBranch
@@ -56,6 +58,7 @@ public enum TranscriptParser {
         let creation = usage["cache_creation"] as? [String: Any]
         return CacheRequest(
             requestKey: key,
+            service: .claude,
             sessionID: object["sessionId"] as? String,
             cwd: object["cwd"] as? String,
             gitBranch: object["gitBranch"] as? String,

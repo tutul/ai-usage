@@ -16,6 +16,8 @@ public final class UsageViewModel {
     /// 最近一次對話紀錄匯入的結果，供 UI 顯示「匯入了幾筆」。
     public var cacheImport: UsageDatabase.ImportResult?
     public var cacheRows: [UsageDatabase.CacheDailyRow] = []
+    /// 快取分頁看哪一家。兩家的快取機制不同，摘要數字不可混算。
+    public var cacheService: Service = .claude
     public private(set) var isImporting = false
 
     /// 顯示範圍（含頭含尾，以當地日為單位）。放在 model 而非 view 的 @State，
@@ -101,6 +103,7 @@ public final class UsageViewModel {
             day.calendar = calendar
             day.dateFormat = "yyyy-MM-dd"
             cacheRows = (try? database.cacheDaily(
+                service: cacheService,
                 from: day.string(from: rangeStart), to: day.string(from: rangeEnd)
             )) ?? []
             var currentFailures: [Service: (kind: String, detail: String)] = [:]

@@ -19,13 +19,13 @@
 | 歷史圖表（**小時／日／週**三粒度、折線、hover 明細、重新整理） | ✅ |
 | 日期範圍選擇（起迄 + 快速選擇） | ✅ |
 | 視窗內取樣日誌（一頁 50 筆、依日分組、可載入更多） | ✅ |
-| 快取分頁（**僅 Claude**，按專案 × 日的 token 分布） | ✅ 手動匯入 |
+| 快取分頁（**Claude + Codex**，按專案 × 日的 token 分布） | ✅ 手動匯入 |
 | 個別關閉 Claude／Codex 的追蹤 | ✅ 選單內可切換 |
 | 開機自啟（`SMAppService`） | ✅ 選單內可切換 |
 
 資料累積起點：2026-08-28 22:32:40，目前 7,582 筆樣本、9,966 筆快取請求紀錄。
-測試：36 個，`cd Packages/AIUsageKit && swift test`。
-Migration：001–008 已套用。
+測試：41 個，`cd Packages/AIUsageKit && swift test`。
+Migration：001–009 已套用。
 簽章：Apple Development（Personal Team），`TeamIdentifier=2PUS5K7TA4`。
 
 ## 已知限制（設計上接受的）
@@ -41,8 +41,11 @@ Migration：001–008 已套用。
   精確值讀 `v_window_summary.used_percent`。
 - **本地時區分桶由讀取端 TZ 決定。**
 - **端點皆未公開**，可能無預警變更。
-- **快取分頁只涵蓋 Claude。** 資料來自 `~/.claude/projects` 的 JSONL。
-  Codex 有對等資料（見 TODO），尚未接。
+- **「閒置後重寫」只對 Claude 有意義。** 門檻（1 小時）來自實測 Claude 的快取
+  幾乎全是 1 小時 TTL；**Codex 的 TTL 未知且無從觀測**，所以那一欄對 Codex
+  一律留白，不套用 Claude 的門檻。
+- **兩家的快取分頁分開看，不可混算。** 機制不同 —— 實測涵蓋率 Claude 98.1%、
+  Codex 48.4%，混在同一組摘要數字裡沒有意義。
 - **快取匯入是手動的。** 按分頁右上角的「匯入」。可重複執行，不會產生重複。
 
 ## 觀察中
