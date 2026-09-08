@@ -72,17 +72,26 @@ public struct HistoryChartView: View {
             .fixedSize()   // 不加會被裁成「…」
     }
 
-    /// 週粒度的刻度值：每一格的起點。其餘粒度回傳 nil，沿用 `.stride`。
-    private var weekTicks: [Date]? {
-        guard granularity == .week else { return nil }
-        return buckets.map(\.start)
+    /// 一格的量畫在該格的**中點**，不是起點。
+    ///
+    /// 每個點代表的是一整段區間的消耗，不是某一瞬間的值。畫在起點時，點會正好
+    /// 壓在格線上 —— 於是「8/31 那一週」的點看起來像是「8/24 那一格的結尾」。
+    /// 小時粒度因為另外有換日的帶狀底色，區間感還在，週粒度就完全看不出來了。
+    /// 畫在中點，點就落在自己那一格的正中間，三種粒度的讀法一致。
+    private func midpoint(_ bucket: UsageBucket) -> Date {
+        bucket.start.addingTimeInterval(bucketSeconds / 2)
     }
 
-    /// 兩端各留半格，否則最後一個點會壓在圖表右緣，它的軸標籤被裁掉。
+    /// 刻度畫在區間邊界（含最後一格的收尾），與中點的資料點交錯。
+    private var weekTicks: [Date]? {
+        guard granularity == .week, let last = buckets.last?.start else { return nil }
+        return buckets.map(\.start) + [last.addingTimeInterval(bucketSeconds)]
+    }
+
+    /// 涵蓋所有區間的完整跨度：第一格的起點到最後一格的**終點**。
     private var xDomain: ClosedRange<Date>? {
         guard let first = buckets.first?.start, let last = buckets.last?.start else { return nil }
-        let pad = bucketSeconds / 2
-        return first.addingTimeInterval(-pad)...last.addingTimeInterval(pad)
+        return first...last.addingTimeInterval(bucketSeconds)
     }
 
     public var body: some View {
@@ -393,7 +402,7 @@ public struct HistoryChartView: View {
                 ForEach(segment, id: \.key) { bucket in
                     // 線本身不分類別，否則同一段會被拆開。用固定色、壓低存在感，讓點說話。
                     LineMark(
-                        x: .value("時間", bucket.start),
+                        x: .value("時間", midpoint(bucket)),
                         y: .value("用量 %", total(bucket)),
                         series: .value("段", index)
                     )
@@ -404,7 +413,7 @@ public struct HistoryChartView: View {
                     //（v_hourly 算在後一個樣本所在的那小時），分成兩套視覺反而看不出在講同一件事。
                     // 不確定性改用點的顏色與形狀表示：同時用兩種通道，色覺障礙也分得出來。
                     PointMark(
-                        x: .value("時間", bucket.start),
+                        x: .value("時間", midpoint(bucket)),
                         y: .value("用量 %", total(bucket))
                     )
                     .foregroundStyle(by: .value("類別", category(bucket)))
