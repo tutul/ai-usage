@@ -126,7 +126,7 @@ OpenAI 客服說法：「weekly window starts at the first message you send」�
 | 小時 | 進 `unknown_percent` | 區間橫跨 6 個小時桶 |
 | 日 | 進 `used_percent` | 區間完整落在同一天內 |
 
-`v_hourly` / `v_daily` 一律**同時輸出 `used_percent` 與 `unknown_percent`**，
+`v_hourly` / `v_daily` / `v_weekly` 一律**同時輸出 `used_percent` 與 `unknown_percent`**，
 消耗量永遠不會憑空消失，只會被標記為「知道發生了、不知道落在哪一格」。
 
 **沒有樣本的小時不會產生任何列。** 無資料 ≠ 0。
@@ -135,6 +135,8 @@ OpenAI 客服說法：「weekly window starts at the first message you send」�
 
 | View | 用途 |
 |---|---|
+| `v_weekly` | 曆週（**週一起算**）。結構與 `v_daily` 相同。注意這不是「額度窗」—— 窗以首次使用為錨點，提前重置時一週內可能有好幾個窗 |
+| `cache_request` / `v_cache_request` / `v_cache_daily` | Claude Code 對話紀錄的 token 分解。**另一條管線**，見下節 |
 | `v_unknown_span` | 小時層級不可歸屬的區間，供圖表畫斜線帶 |
 | `v_window_summary` | 每個窗一列。`used_percent` = 最後觀測值（**權威，不經 delta**）、`peak_percent`、`observed_duration_seconds`、`ended_early`（是否被提前重置） |
 | `v_current` | menu bar 用的最新讀數，含 `window_started` |
@@ -142,6 +144,23 @@ OpenAI 客服說法：「weekly window starts at the first message you send」�
 
 `v_health` 分開量 `ok` 與 `last_weekly_at`：HTTP 成功不等於拿到週用量
 （窗可能換位或消失），兩者混在同一欄位會讓健康度誤報一切正常。
+
+## 第二條管線：對話紀錄的 token 分解
+
+與用量取樣**刻意不共用任何機制**：
+
+| | 用量取樣（`sample`） | 快取分析（`cache_request`） |
+|---|---|---|
+| 來源 | 輪詢未公開端點 | 本機 JSONL，已經在硬碟上 |
+| 取得 | 取樣，會漏、會有 gap | 匯入，完整不會漏 |
+| 需要 delta／窗身分／無資料≠0 | ✅ 全部 | ❌ 一條都不需要 |
+| 共用的原則 | D-002：存原始值，推導留給查詢時 | 同左 |
+
+**去重鍵是 `requestId` 不是 `uuid`**：一次 API 請求會在 JSONL 產生多行（每個內容
+區塊一行），而每一行都帶著同一份 `usage`。逐行加總會放大約 1.74 倍且不均勻。
+
+歸因只做**能可靠判斷**的那一種：「距上次請求超過快取 TTL」。其餘重寫（改動前面
+的內容、context 壓縮、換模型…）從紀錄判斷不出來，不歸因，只呈現數量。
 
 ## 排程與生命週期
 

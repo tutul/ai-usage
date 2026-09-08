@@ -180,6 +180,22 @@ Claude 的 refresh token 約 30 天到期，屆時需重跑 `claude auth login`�
 **取樣間隔不保證。** 使用 `NSBackgroundActivityScheduler`（休眠期間不觸發、
 醒來不補跑錯過的次數），它有 tolerance，實際間隔會浮動。
 
+## 快取分頁（只涵蓋 Claude）
+
+第二個分頁分析 **Claude Code 對話紀錄裡的 token 分解** —— 有多少輸入是從快取讀的
+（便宜）、有多少是重新寫進快取的（貴）。資料來自 `~/.claude/projects` 的 JSONL，
+**不需要任何憑證**，也**不含 Codex**。
+
+按右上角的「匯入」掃描。可重複執行，以 `requestId` 去重，不會產生重複資料。
+
+表格按**專案 × 日**列出，並單獨標出「距上次請求超過快取 TTL（1 小時）」而重寫的量。
+**其餘的重寫不歸因** —— 改動了前面的內容、context 壓縮、換模型等等都會造成重寫，
+從紀錄判斷不出來是哪一種，所以只呈現數量，讓你自己對照當天在做什麼。
+
+> **「涵蓋率」不是「命中率」。** prompt caching 沒有 hit／miss 的二元結果，每次請求
+> 都是部分命中（實測只有 0.2% 的請求完全沒讀到快取）。它問的是「這次有多少比例
+> 不用重算」。
+
 ## 直接查資料庫
 
 DB 位於 `~/Library/Application Support/AIUsage/usage.sqlite`（WAL 模式，
@@ -217,7 +233,7 @@ sqlite3 "$HOME/Library/Application Support/AIUsage/usage.sqlite" ".backup /tmp/s
 ## 開發
 
 ```bash
-cd Packages/AIUsageKit && swift test    # 28 個測試，不需啟動 app
+cd Packages/AIUsageKit && swift test    # 36 個測試，不需啟動 app
 ```
 
 - 架構與資料模型 → [docs/architecture.md](docs/architecture.md)

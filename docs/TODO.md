@@ -67,6 +67,27 @@ Keychain 政策再改），這是唯一已知的 plan B，值得記著。
 理由見 non-goal：它只看得到這台機器上透過 Claude Code 做的事，而週用量是帳號
 層級的（與 D-012 拒絕「過期寫 0」是同一個理由）。
 
+### 6. 接 Codex 的快取資料（中）
+Codex 的 `~/.codex/sessions` 與 `archived_sessions` 的 `rollout-*.jsonl` 裡有對等資料：
+`payload.info.last_token_usage` 含 `input_tokens` / `cached_input_tokens` /
+`cache_write_input_tokens` / `output_tokens` / `reasoning_output_tokens`。
+
+四個與 Claude 的差異要處理：
+
+| | Claude | Codex |
+|---|---|---|
+| 去重鍵 | `requestId` | 沒有；用 **session 檔 + `ordinal`** |
+| 專案路徑 | 每行都有 `cwd` | 只在第一行的 `session_meta`，要往下帶 |
+| 額外欄位 | — | `reasoning_output_tokens` |
+| 快取 TTL | 有 5m／1h 分解 | **未知** |
+
+最後一項最重要：**「閒置後重寫」這個歸因對 Codex 不成立**，因為我們不知道它的
+快取存活多久。套用 Claude 的 1 小時門檻就是在編。接進來時那一欄要留白，
+等有辦法觀測到 TTL 再說。
+
+另外那些檔案裡有 `payload.rate_limits` —— **官方用量數字，不需要憑證**。
+這是 #7 在找的 Codex 備援路徑。
+
 ## 不做（brief 的 non-goal，仍然有效）
 
 - **Gemini** —— 其配額是每日請求數，weekly % 這個指標不存在
