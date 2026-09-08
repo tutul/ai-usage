@@ -52,6 +52,39 @@ public struct HistoryChartView: View {
     }
     private var chartUnit: Calendar.Component { calendarUnit }
 
+    /// **必須與 `v_weekly` 的分桶一致（週一起算）。**
+    /// `Calendar.current.firstWeekday` 隨地區設定 —— 台灣與美國是**週日**，
+    /// 用它算出的週起日會比資料庫早一天，hover 查不到那一格，
+    /// 於是明明畫著點卻顯示「此週無取樣」。
+    private var bucketCalendar: Calendar {
+        guard granularity == .week else { return .current }
+        var calendar = Calendar.current
+        calendar.firstWeekday = 2
+        return calendar
+    }
+
+    @ViewBuilder
+    private func axisLabel(_ date: Date) -> some View {
+        Text(date, format: granularity == .hour
+             ? .dateTime.hour()
+             : .dateTime.month(.defaultDigits).day())
+            .font(.caption2)
+            .fixedSize()   // 不加會被裁成「…」
+    }
+
+    /// 週粒度的刻度值：每一格的起點。其餘粒度回傳 nil，沿用 `.stride`。
+    private var weekTicks: [Date]? {
+        guard granularity == .week else { return nil }
+        return buckets.map(\.start)
+    }
+
+    /// 兩端各留半格，否則最後一個點會壓在圖表右緣，它的軸標籤被裁掉。
+    private var xDomain: ClosedRange<Date>? {
+        guard let first = buckets.first?.start, let last = buckets.last?.start else { return nil }
+        let pad = bucketSeconds / 2
+        return first.addingTimeInterval(-pad)...last.addingTimeInterval(pad)
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Picker("分頁", selection: $tab) {
@@ -312,7 +345,7 @@ public struct HistoryChartView: View {
         var current: [UsageBucket] = []
         for bucket in buckets {
             if let prev = current.last,
-               Calendar.current.date(byAdding: calendarUnit, value: 1, to: prev.start) != bucket.start {
+               bucketCalendar.date(byAdding: calendarUnit, value: 1, to: prev.start) != bucket.start {
                 result.append(current)
                 current = []
             }
@@ -380,6 +413,7 @@ public struct HistoryChartView: View {
                 }
             }
         }
+        .chartXScale(domain: xDomain ?? Date.distantPast...Date.distantFuture)
         .chartYScale(domain: yDomain)
         // 顏色與形狀兩個尺度的定義域必須一致，否則資料裡缺某個類別時
         // （例如日粒度沒有未知區間）會各自畫一個圖例，出現兩次「已歸屬」。
@@ -417,19 +451,23 @@ public struct HistoryChartView: View {
             }
         }
         .chartXAxis {
-            AxisMarks(values: .stride(by: axisStride.unit, count: axisStride.count)) { value in
-                AxisGridLine()
-                AxisTick()
-                if let date = value.as(Date.self) {
-                    AxisValueLabel {
-                        Text(date, format: granularity == .hour
-                             ? .dateTime.hour()
-                             : .dateTime.month(.defaultDigits).day())
-                            .font(.caption2)
-                    }
+            // 週粒度直接用每一格的起點當刻度。用 `.stride` 會從定義域起點起算，
+            // 而定義域為了留白往前推了半格 —— 刻度就會落在 8/27、9/3 這種
+            // 不是週起日的位置上。格數愈少，這種偏移愈明顯。
+            if let ticks = weekTicks {
+                AxisMarks(values: ticks) { value in
+                    AxisGridLine()
+                    AxisTick()
+                    if let date = value.as(Date.self) { AxisValueLabel { axisLabel(date) } }
+                }
+            } else {
+                AxisMarks(values: .stride(by: axisStride.unit, count: axisStride.count)) { value in
+                    AxisGridLine()
+                    AxisTick()
+                    if let date = value.as(Date.self) { AxisValueLabel { axisLabel(date) } }
                 }
             }
-            // 第二層：換日的分隔線與日期。日粒度的標籤本來就是日期，不需要。
+            // 第二層：換日的分隔線與日期。日／週粒度的標籤本來就是日期，不需要。
             AxisMarks(values: dayStarts) { value in
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 1))
                     .foregroundStyle(Color.secondary.opacity(0.9))
@@ -437,7 +475,7 @@ public struct HistoryChartView: View {
                     AxisValueLabel {
                         Text(date, format: .dateTime.month(.defaultDigits).day())
                             .font(.caption2.weight(.semibold))
-                            .fixedSize()          // 不加會被壓成「8/…」
+                            .fixedSize()
                             .offset(y: 13)
                     }
                 }
@@ -477,7 +515,7 @@ public struct HistoryChartView: View {
                                     else { hoveredBucketStart = nil; return }
                                     // 取游標所在的整格 —— 不用「最近的長條」，
                                     // 那會讓游標停在空白處時跳到遠處的長條
-                                    hoveredBucketStart = Calendar.current
+                                    hoveredBucketStart = bucketCalendar
                                         .dateInterval(of: calendarUnit, for: date)?.start
                                 case .ended:
                                     hoveredBucketStart = nil
