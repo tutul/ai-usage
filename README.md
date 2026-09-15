@@ -1,5 +1,7 @@
 # ai-usage
 
+**繁體中文** | [English](README.en.md)
+
 常駐 macOS menu bar，持續追蹤 **Claude** 與 **Codex** 訂閱的 weekly 用量百分比。
 每筆原始樣本永久存進本機 SQLite，可回溯任意區間的小時／日／週消耗。
 
@@ -165,10 +167,11 @@ Claude 的 refresh token 約 30 天到期，屆時需重跑 `claude auth login`�
 >
 > **為什麼仍然這樣做**：另一條路是寫回 Claude Code 的項目，但那會重設該項目的
 > 分區清單，讓 macOS **每天要你輸入兩三次鑰匙圈密碼、永遠不停**。
-> 一次性的重新登入換掉持續的干擾，是刻意的取捨（見 [D-016](docs/history/decisions.md)）。
+> 對不用 CLI 的人，這是用一次性的重新登入換掉持續的干擾，是刻意的取捨（見 [D-016](docs/history/decisions.md)）。
 >
 > **不必手動處理**：若你重新登入、把 refresh token 換掉，本 app 的續期會失敗，
-> 它會自動丟掉自己那份、下次取樣重新從 Claude Code 的項目取得憑證。
+> 它會自動丟掉自己那份、下次取樣重新從 Claude Code 的項目取得憑證 ——
+> 這也是常用 CLI 的人會一再被登出的原因：新的憑證又會被本 app 拿去續期。
 >
 > Claude Code 的**桌面版不受影響** —— 實測它不靠這個項目續期。
 
