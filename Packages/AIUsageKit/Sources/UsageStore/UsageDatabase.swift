@@ -79,7 +79,10 @@ public struct Health: Sendable, Hashable {
     public let lastSuccessAt: Date?
     public let lastAttemptAt: Date?
     public let lastWeeklyAt: Date?
+    /// 不含 `slept`。永久累計，看歷史用。
     public let failuresTotal: Int
+    /// 不含 `slept`。判斷「現在健不健康」看這個。
+    public let failures24h: Int
 }
 
 public final class UsageDatabase: Sendable {
@@ -194,6 +197,20 @@ public final class UsageDatabase: Sendable {
                 arguments: [service.rawValue,
                             Int(startedAt.timeIntervalSince1970), Int(completedAt.timeIntervalSince1970),
                             failure.httpStatus, failure.kind.rawValue, failure.detail]
+            )
+        }
+    }
+
+    /// 記錄一筆憑證事件。見 `CredentialEvent`。
+    public func record(_ event: CredentialEvent) throws {
+        try pool.write { db in
+            try db.execute(
+                sql: """
+                INSERT INTO credential_event(service, occurred_at, event, source, detail)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                arguments: [event.service.rawValue, Int(event.occurredAt.timeIntervalSince1970),
+                            event.kind.rawValue, event.source, event.detail]
             )
         }
     }
@@ -485,13 +502,17 @@ public final class UsageDatabase: Sendable {
 
     /// 目前是否處於失敗狀態，以及失敗原因。
     /// 只在「最後一次嘗試失敗」時回傳 —— 已經恢復的舊失敗不該再影響 UI。
+    ///
+    /// **跳過 `slept`**：那次沒有觀測，不能拿來判斷服務現況。
+    /// 否則睡一覺起來，一筆真正的 auth 失敗會被睡眠中斷蓋掉而看不見。
     public func currentFailure(service: Service) throws -> (kind: String, detail: String)? {
         try pool.read { db in
             guard let row = try Row.fetchOne(
                 db,
                 sql: """
                 SELECT ok, error_kind, error_detail FROM fetch
-                 WHERE service = ? ORDER BY completed_at DESC, id DESC LIMIT 1
+                 WHERE service = ? AND COALESCE(error_kind, '') <> 'slept'
+                 ORDER BY completed_at DESC, id DESC LIMIT 1
                 """,
                 arguments: [service.rawValue]
             ) else { return nil }
@@ -512,7 +533,8 @@ public final class UsageDatabase: Sendable {
                     lastSuccessAt: date("last_success_at"),
                     lastAttemptAt: date("last_attempt_at"),
                     lastWeeklyAt: date("last_weekly_at"),
-                    failuresTotal: row["failures_total"] ?? 0
+                    failuresTotal: row["failures_total"] ?? 0,
+                    failures24h: row["failures_24h"] ?? 0
                 )
             }
         }

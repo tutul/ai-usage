@@ -23,7 +23,14 @@ public struct ClaudeProvider: UsageProvider {
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue(userAgent.value, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let body = try await HTTP.perform(request)
+        let body: String
+        do {
+            body = try await HTTP.perform(request)
+        } catch let failure as FetchFailure where failure.kind == .auth {
+            // 被拒的當下記下 token 還剩多久 —— 事後就查不到了
+            await credentials.noteRejected(failure)
+            throw failure
+        }
         return try ClaudeUsageParser.parse(body: body, observedAt: Date())
     }
 }

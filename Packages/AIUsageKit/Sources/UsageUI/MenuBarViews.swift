@@ -9,19 +9,31 @@ public struct MenuBarContent: View {
 
     let launchAtLogin: LaunchAtLogin
     let tracking: TrackingSettings
+    let clientID: ClaudeClientIDSettings
+
+    @State private var showAdvanced = false
+    @State private var clientIDDraft = ""
+    @State private var clientIDInvalid = false
 
     public init(
         model: UsageViewModel,
         launchAtLogin: LaunchAtLogin,
         tracking: TrackingSettings,
+        clientID: ClaudeClientIDSettings,
         onRefresh: @escaping () -> Void,
         onOpenHistory: @escaping () -> Void
     ) {
         self.model = model
         self.launchAtLogin = launchAtLogin
         self.tracking = tracking
+        self.clientID = clientID
         self.onRefresh = onRefresh
         self.onOpenHistory = onOpenHistory
+    }
+
+    private func applyClientID() {
+        clientIDInvalid = !clientID.apply(clientIDDraft)
+        if !clientIDInvalid { clientIDDraft = clientID.override ?? "" }
     }
 
     public var body: some View {
@@ -83,6 +95,49 @@ public struct MenuBarContent: View {
                     Text(error).font(.caption2).foregroundStyle(.red).lineLimit(2)
                 }
             }
+
+            Divider()
+
+            // 平常用不到，收起來。只有官方更換 client ID、續期持續失敗時才需要打開。
+            DisclosureGroup("進階", isExpanded: $showAdvanced) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Claude OAuth client ID").foregroundStyle(.secondary)
+                        Spacer()
+                        Text(clientID.override == nil ? "使用預設" : "使用自訂")
+                            .foregroundStyle(clientID.override == nil ? Color.secondary : Color.orange)
+                    }
+                    .font(.caption)
+
+                    TextField(ClaudeClientID.defaultValue, text: $clientIDDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption2.monospaced())
+                        .onSubmit(applyClientID)
+
+                    HStack {
+                        Button("套用", action: applyClientID)
+                        Button("還原預設") {
+                            clientID.reset()
+                            clientIDDraft = ""
+                            clientIDInvalid = false
+                        }
+                        .disabled(clientID.override == nil)
+                    }
+                    .controlSize(.small)
+
+                    if clientIDInvalid {
+                        Text("格式不對，應為 UUID（8-4-4-4-12），未套用。")
+                            .font(.caption2).foregroundStyle(.red)
+                    }
+                    Text("只有續期持續失敗、且確認官方更換了 client ID 時才需要改。查法見 README。")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 4)
+            }
+            .font(.callout)
+            .onAppear { clientIDDraft = clientID.override ?? "" }
 
             Divider()
             HStack {

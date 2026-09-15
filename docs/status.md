@@ -2,7 +2,7 @@
 
 下一步見 [TODO.md](TODO.md)。
 
-**最後更新：2026-09-08**
+**最後更新：2026-09-15**
 
 > 🟢 憑證續期與 Keychain 授權都已解決（D-016）。app 以 Apple Development 憑證簽章，
 > 分區清單改以 teamid 釘住，不再反覆要求鑰匙圈密碼。
@@ -22,10 +22,13 @@
 | 快取分頁（**Claude + Codex**，按專案 × 日的 token 分布） | ✅ 手動匯入 |
 | 個別關閉 Claude／Codex 的追蹤 | ✅ 選單內可切換 |
 | 開機自啟（`SMAppService`） | ✅ 選單內可切換 |
+| 睡眠中斷不計為失敗（`slept`） | ✅ 2026-09-15 起；舊資料不回填 |
+| 憑證事件紀錄（`credential_event`） | ✅ 2026-09-15 起 |
+| Claude client ID 可覆寫 | ✅ 選單「進階」 |
 
-資料累積起點：2026-08-28 22:32:40，目前 7,582 筆樣本、9,966 筆快取請求紀錄。
-測試：41 個，`cd Packages/AIUsageKit && swift test`。
-Migration：001–009 已套用。
+資料累積起點：2026-08-28 22:32:40，目前 10,496 筆樣本、11,325 筆快取請求紀錄。
+測試：57 個，`cd Packages/AIUsageKit && swift test`。
+Migration：001–010 已套用。
 簽章：Apple Development（Personal Team），`TeamIdentifier=2PUS5K7TA4`。
 
 ## 已知限制（設計上接受的）
@@ -49,6 +52,12 @@ Migration：001–009 已套用。
 - **快取匯入是手動的。** 按分頁右上角的「匯入」。可重複執行，不會產生重複。
 
 ## 觀察中
+
+- **睡眠中斷分類的實機效果**（2026-09-15 15:58 上線）—— 目前只有單元測試。
+  下一次過夜睡眠後查：
+  `SELECT error_kind, COUNT(*) FROM fetch WHERE completed_at > 1789459137 AND ok = 0 GROUP BY 1`，
+  預期逾時大多變成 `slept`，`network` 剩極少數（見 TODO #9）。
+- **09-13 那次 Claude auth 失敗的原因** —— 查不到，等 `credential_event` 下次記到 `rejected` 再判斷（TODO #8）。
 
 - ~~**Keychain 反覆要求密碼**~~ —— ✅ **已解決（2026-09-05，見 D-016）**。
   成因是續期寫回會重設該項目的分區清單。改為**讀 Claude Code 的項目、只寫本 app

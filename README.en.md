@@ -162,6 +162,21 @@ Both services **reuse your existing login**; you don't need to prepare any token
 Claude's refresh token expires after about 30 days, after which you need to run `claude auth login` again.
 The menu shows a clear reason rather than a cryptic error.
 
+### If the client ID changes
+
+Renewal sends Claude Code's OAuth client ID (a public value, not a secret), which has a built-in default.
+If Anthropic changes it, renewal fails and the menu shows `invalid_client`. Get the new value from an updated Claude Code:
+
+```bash
+strings "$(realpath "$(which claude)")" | grep -o 'platform.claude.com/oauth/code/callback",CLIENT_ID:"[0-9a-f-]*"'
+```
+
+The binary contains two `CLIENT_ID`s; you want the one whose URL **literally says `platform.claude.com`**
+(the other uses template variables). Enter it under "進階" (Advanced) → Claude OAuth client ID in the menu; it takes effect on the next renewal.
+
+In this case the app **does not** discard its own credentials — a wrong client ID doesn't mean the refresh token is bad.
+The `invalid_client` detection follows the OAuth spec; Anthropic hasn't actually been observed returning it yet.
+
 > ### ⚠️ This logs the `claude` CLI out
 >
 > Claude refresh tokens are **single-use**: using one issues a new one and the old one is invalidated immediately.
@@ -213,6 +228,10 @@ then one jumps by 1 — that's not a bug, it's the nature of the data source. Da
 **The sampling interval isn't guaranteed.** It uses `NSBackgroundActivityScheduler` (doesn't fire during sleep,
 doesn't catch up on missed runs after waking), which has tolerance, so the actual interval drifts.
 
+**Sleep interruptions don't count as failures.** While asleep, a Mac briefly wakes and triggers sampling, and the request is often frozen by the next sleep and times out.
+These show in the sampling log as a grey "睡眠中斷" (Interrupted by sleep); they don't count as failures and don't make the menu warn.
+A real network outage while awake still counts as a failure.
+
 ## Cache tab
 
 The second tab analyzes **the token breakdown in your conversation logs** — how much input was read from cache (cheap)
@@ -259,7 +278,8 @@ sqlite3 "$HOME/Library/Application Support/AIUsage/usage.sqlite" \
 | `v_unknown_span` | Intervals that can't be attributed |
 | `v_window_seq` | Window number for each sample |
 | `v_window_summary` | Actual usage per window (**not derived from deltas — the most accurate**), including `ended_early` |
-| `v_health` | Sampling health, including `last_weekly_at` |
+| `v_health` | Sampling health, including `last_weekly_at` and `failures_24h` (failure counts exclude sleep interruptions) |
+| `credential_event` (table) | Credential events: source changes, renewal success / failure, self-healing, rejection by the usage endpoint (with remaining token lifetime at that moment). **No tokens** |
 
 ⚠️ **Don't put the DB file on iCloud Drive / Dropbox / a network drive** — WAL depends on shared memory.
 
@@ -275,7 +295,7 @@ Opening the original file with `sqlite3` for queries doesn't have this problem.
 ## Development
 
 ```bash
-cd Packages/AIUsageKit && swift test    # 41 tests, no need to launch the app
+cd Packages/AIUsageKit && swift test    # 57 tests, no need to launch the app
 ```
 
 Docs (Traditional Chinese):

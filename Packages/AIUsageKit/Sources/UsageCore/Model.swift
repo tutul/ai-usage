@@ -88,6 +88,13 @@ public enum FetchErrorKind: String, Sendable {
     case http
     case parse
     case missingWindow = "missing_window"
+    /// 請求期間系統睡著了 —— **這次沒有觀測，不是服務故障**。見 D-017。
+    /// 睡眠中的短暫喚醒會照常觸發取樣，系統接著回去睡、請求被凍結，醒來時早已逾時。
+    /// 記成 `network` 會讓健康度與取樣日誌塞滿假失敗（實測 7 天 208 筆）。
+    case slept
+    /// 續期端點不認這個 client ID。補救是換 client ID，**不是**重新登入 ——
+    /// 所以不能併入 `auth`，否則使用者會去重新登入而白忙，自癒也會誤丟還能用的憑證。
+    case invalidClient = "invalid_client"
 }
 
 public struct FetchFailure: Error, Sendable {
@@ -99,5 +106,22 @@ public struct FetchFailure: Error, Sendable {
         self.kind = kind
         self.httpStatus = httpStatus
         self.detail = detail
+    }
+}
+
+public extension FetchFailure {
+    /// 牆上時間比清醒時間多出這麼多秒，就視為請求期間系統睡過。
+    /// 清醒時兩者幾乎同步；`ProcessInfo.systemUptime` 不計入睡眠，只有牆上時間會前進。
+    /// 門檻訂得低：實測有一次請求期間只睡了約 2 秒，仍然是睡眠造成的逾時。
+    static let sleepThresholdSeconds: TimeInterval = 1
+
+    /// **只重新分類 `network`。** 睡醒後拿到的 401 仍是真的 401。
+    /// 清醒時的真斷網維持 `network` —— 實測 7 天內有 1 筆，那是真的失敗。
+    func accountingForSleep(asleepSeconds: TimeInterval) -> FetchFailure {
+        guard kind == .network, asleepSeconds > Self.sleepThresholdSeconds else { return self }
+        return FetchFailure(
+            kind: .slept, httpStatus: httpStatus,
+            detail: "請求期間系統睡眠約 \(Int(asleepSeconds.rounded())) 秒，本次未觀測（非服務故障）：\(detail)"
+        )
     }
 }

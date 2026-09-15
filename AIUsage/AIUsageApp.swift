@@ -13,6 +13,7 @@ final class AppState {
     private(set) var sampler: Sampler?
     private(set) var startupError: String?
     private(set) var tracking = TrackingSettings()
+    let clientID = ClaudeClientIDSettings()
 
     static let samplingInterval: TimeInterval = 300
 
@@ -27,7 +28,15 @@ final class AppState {
             let tracking = TrackingSettings()
             let sampler = Sampler(
                 database: database,
-                providers: [ClaudeProvider(), CodexProvider()],
+                providers: [
+                    ClaudeProvider(credentials: ClaudeCredentialSource(
+                        // 每次續期才讀，選單裡改了立即生效
+                        clientID: { ClaudeClientID.resolve() },
+                        // 寫進 DB：系統日誌保存期太短，出事時常常已經查不到（見 D-017）
+                        eventSink: { event in try? database.record(event) }
+                    )),
+                    CodexProvider()
+                ],
                 model: model,
                 tracking: tracking,
                 interval: Self.samplingInterval
@@ -86,6 +95,7 @@ struct AIUsageApp: App {
                     model: model,
                     launchAtLogin: launchAtLogin,
                     tracking: state.tracking,
+                    clientID: state.clientID,
                     onRefresh: { state.refreshNow() },
                     onOpenHistory: { showHistory() }
                 )

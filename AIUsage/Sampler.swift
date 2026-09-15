@@ -74,17 +74,20 @@ final class Sampler {
     func sampleAll() async {
         for provider in providers where tracking.isEnabled(provider.service) {
             let startedAt = Date()
+            // 不計入睡眠的時鐘。與牆上時間的差距 = 請求期間睡了多久（見 D-017）
+            let startedAwake = ProcessInfo.processInfo.systemUptime
             let snapshot: UsageSnapshot
             do {
                 snapshot = try await provider.fetch()
-            } catch let failure as FetchFailure {
-                try? database.record(failure: failure, service: provider.service,
-                                     startedAt: startedAt, completedAt: Date())
-                continue
             } catch {
+                let completedAt = Date()
+                let asleep = completedAt.timeIntervalSince(startedAt)
+                    - (ProcessInfo.processInfo.systemUptime - startedAwake)
+                let failure = (error as? FetchFailure)
+                    ?? FetchFailure(kind: .network, detail: String(describing: error))
                 try? database.record(
-                    failure: FetchFailure(kind: .network, detail: String(describing: error)),
-                    service: provider.service, startedAt: startedAt, completedAt: Date()
+                    failure: failure.accountingForSleep(asleepSeconds: asleep),
+                    service: provider.service, startedAt: startedAt, completedAt: completedAt
                 )
                 continue
             }

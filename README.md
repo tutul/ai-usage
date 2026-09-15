@@ -159,6 +159,21 @@ Keychain Access 的 GUI **看不到分區清單**，只能用這支工具查。
 Claude 的 refresh token 約 30 天到期，屆時需重跑 `claude auth login`。
 選單會顯示明確原因，不會只給看不懂的錯誤。
 
+### client ID 換了怎麼辦
+
+續期要帶 Claude Code 的 OAuth client ID（公開值，非機密），程式內建預設值。
+若官方更換，續期會失敗，選單顯示 `invalid_client`。從已更新的 Claude Code 取得新值：
+
+```bash
+strings "$(realpath "$(which claude)")" | grep -o 'platform.claude.com/oauth/code/callback",CLIENT_ID:"[0-9a-f-]*"'
+```
+
+執行檔裡有兩組 `CLIENT_ID`，要的是**網址字面寫著 `platform.claude.com`** 的那組
+（另一組的網址是樣板變數）。填進選單的「進階 → Claude OAuth client ID」，下一次續期就生效。
+
+這種情況本 app **不會**丟掉自己的憑證 —— client ID 錯了不代表 refresh token 壞了。
+`invalid_client` 的判斷依 OAuth 規格，尚未實際遇過官方回這個值。
+
 > ### ⚠️ 這會讓 `claude` CLI 被登出
 >
 > Claude 的 refresh token 是**單次有效**的：用掉一個就換一個新的，舊的立刻作廢。
@@ -210,6 +225,10 @@ Claude 的 refresh token 約 30 天到期，屆時需重跑 `claude auth login`�
 **取樣間隔不保證。** 使用 `NSBackgroundActivityScheduler`（休眠期間不觸發、
 醒來不補跑錯過的次數），它有 tolerance，實際間隔會浮動。
 
+**睡眠中斷不算失敗。** Mac 睡眠時會短暫喚醒並觸發取樣，請求常被接著的睡眠凍結而逾時。
+這種情況在取樣紀錄裡顯示為灰色的「睡眠中斷」，不計入失敗次數，也不會讓選單示警。
+清醒時真的斷網照樣算失敗。
+
 ## 快取分頁
 
 第二個分頁分析**對話紀錄裡的 token 分解** —— 有多少輸入是從快取讀的（便宜）、
@@ -256,7 +275,8 @@ sqlite3 "$HOME/Library/Application Support/AIUsage/usage.sqlite" \
 | `v_unknown_span` | 不可歸屬的區間 |
 | `v_window_seq` | 為每筆樣本標上窗編號 |
 | `v_window_summary` | 每個窗的實際用量（**不經 delta 推導，最精確**），含 `ended_early` |
-| `v_health` | 取樣健康度，含 `last_weekly_at` |
+| `v_health` | 取樣健康度，含 `last_weekly_at`、`failures_24h`（失敗次數不含睡眠中斷） |
+| `credential_event`（表） | 憑證事件：來源改變、續期成敗、自癒、被用量端點拒絕（含當時剩餘效期）。**不含 token** |
 
 ⚠️ **DB 檔不可放在 iCloud Drive / Dropbox / 網路磁碟** —— WAL 依賴 shared memory。
 
@@ -272,7 +292,7 @@ sqlite3 "$HOME/Library/Application Support/AIUsage/usage.sqlite" ".backup /tmp/s
 ## 開發
 
 ```bash
-cd Packages/AIUsageKit && swift test    # 41 個測試，不需啟動 app
+cd Packages/AIUsageKit && swift test    # 57 個測試，不需啟動 app
 ```
 
 - 架構與資料模型 → [docs/architecture.md](docs/architecture.md)

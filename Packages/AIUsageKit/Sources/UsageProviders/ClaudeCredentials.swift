@@ -29,27 +29,33 @@ import UsageCore
 /// 下次取樣會重新從 Claude Code 的項目取得憑證。所以使用者哪天重新登入，
 /// 我們會自己接上，不需要任何手動處理。
 ///
+/// ## 事件
+///
+/// 來源改變、續期成敗、自癒、被用量端點拒絕，都送一筆 `CredentialEvent`（見 D-017）。
+///
 public actor ClaudeCredentialSource: CredentialSource {
     public static let tokenEndpoint = URL(string: "https://platform.claude.com/v1/oauth/token")!
-    /// 從 `claude` CLI 執行檔 `strings` 取得。OAuth public client，非機密，
-    /// 但**寫死是單點故障** —— 官方輪替後續期會永久失敗。
-    /// 待改為可覆寫／自動取得，見 docs/TODO.md #2。
-    public static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     /// 提前續期的緩衝，避免剛好在請求途中過期。
     public static let defaultRenewalMargin: TimeInterval = 300
 
-    /// 只記錄「是否輪替」這個布林值，**絕不記 token 本身**。
-    /// 這個答案決定了能不能不寫回 Claude Code 的 Keychain 項目 —— 寫回會清掉
-    /// 該項目的信任應用程式清單，害 Claude Code 每次讀都要重新輸入 login 密碼。
     static let log = Logger(subsystem: "com.tutu.aiusage", category: "credentials")
     /// 被限流後的冷卻期。取樣每 5 分鐘一次，若不退避就等於持續敲一個認證端點。
     static let renewalCooldown: TimeInterval = 900
+
+    /// 憑證從哪裡讀到的。來源一變就記一筆事件。
+    enum Origin: String, Sendable {
+        case own
+        case file
+        case claudeCode = "claude_code"
+    }
 
     /// 續期失敗後的封鎖截止時間。actor 隔離，不需額外鎖。
     private var renewalBlockedUntil: Date?
 
     /// 續期的併發合流。見 `SingleFlight` 與 `renewCoalesced`。
     private let renewalFlight = SingleFlight<String>()
+
+    private var lastOrigin: Origin?
 
     let fileURL: URL
     /// Claude Code 的項目。**唯讀** —— 寫它會重設它的分區清單。
@@ -59,6 +65,9 @@ public actor ClaudeCredentialSource: CredentialSource {
     let userAgent: UserAgent
     let renewalMargin: TimeInterval
     let renewalEnabled: Bool
+    /// **每次續期時才呼叫**，所以使用者在選單改了 client ID，下一次續期就生效，不必重啟。
+    let clientID: @Sendable () -> String
+    let eventSink: CredentialEventSink?
 
     public init(
         fileURL: URL = URL(fileURLWithPath: NSHomeDirectory()).appending(path: ".claude/.credentials.json"),
@@ -66,7 +75,9 @@ public actor ClaudeCredentialSource: CredentialSource {
         privateKeychainService: String = "AIUsage-claude-credentials",
         userAgent: UserAgent = .claude,
         renewalMargin: TimeInterval = ClaudeCredentialSource.defaultRenewalMargin,
-        renewalEnabled: Bool = true
+        renewalEnabled: Bool = true,
+        clientID: @escaping @Sendable () -> String = { ClaudeClientID.defaultValue },
+        eventSink: CredentialEventSink? = nil
     ) {
         self.fileURL = fileURL
         self.keychainService = keychainService
@@ -74,6 +85,8 @@ public actor ClaudeCredentialSource: CredentialSource {
         self.userAgent = userAgent
         self.renewalMargin = renewalMargin
         self.renewalEnabled = renewalEnabled
+        self.clientID = clientID
+        self.eventSink = eventSink
     }
 
     public func accessToken() async throws -> String {
@@ -114,6 +127,15 @@ public actor ClaudeCredentialSource: CredentialSource {
         return try await renewCoalesced(refreshToken: refreshToken)
     }
 
+    /// 用量端點拒絕 token 時由 provider 呼叫。**只記錄，不改變行為** ——
+    /// 還沒有資料證明該怎麼反應（見 D-017）。
+    public func noteRejected(_ failure: FetchFailure) {
+        let oauth = (try? loadCredentials())?["claudeAiOauth"] as? [String: Any]
+        let remaining = oauth.flatMap(Self.expiryDate)
+            .map { "\(Int($0.timeIntervalSinceNow / 60)) 分鐘" } ?? "未知"
+        emit(.rejected, "HTTP \(failure.httpStatus.map(String.init) ?? "?")，token 剩餘效期 \(remaining)：\(failure.detail)")
+    }
+
     /// 續期走 `SingleFlight`：進行中時，後到的呼叫等同一個結果，不各自送一次請求。
     ///
     /// 實測（2026-09-01 20:16）啟動時兩次取樣同時觸發續期，伺服器讓先到的那次輪替，
@@ -129,10 +151,12 @@ public actor ClaudeCredentialSource: CredentialSource {
         let renewed: Renewal
         do {
             renewed = try await requestRenewal(refreshToken: refreshToken)
-        } catch let failure as FetchFailure {
+        } catch let raw as FetchFailure {
+            let failure = Self.explained(raw)
+            emit(.renewalFailed, "\(failure.kind.rawValue)：\(failure.detail)")
             if failure.kind == .rateLimited {
                 renewalBlockedUntil = Date().addingTimeInterval(Self.renewalCooldown)
-            } else if failure.kind == .auth || failure.detail.contains("invalid_grant") {
+            } else if Self.shouldDiscard(after: failure) {
                 // 續期鏈斷了 —— 多半是使用者重新登入、把 refresh token 換掉了。
                 // 丟掉自己那份，下次取樣就會回頭從 Claude Code 的項目重新種子。
                 discardPrivateCredentials()
@@ -146,6 +170,7 @@ public actor ClaudeCredentialSource: CredentialSource {
         Self.log.notice(
             "renewal ok — response_has_refresh_token=\(returned, privacy: .public) rotated=\(rotated, privacy: .public)"
         )
+        emit(.renewed, "rotated=\(rotated) expires_in=\(renewed.expiresIn.map { "\(Int($0))s" } ?? "?")")
 
         var credentials = try loadCredentials()
         guard var oauth = credentials["claudeAiOauth"] as? [String: Any] else {
@@ -166,22 +191,49 @@ public actor ClaudeCredentialSource: CredentialSource {
         return renewed.accessToken
     }
 
+    /// OAuth 規格（RFC 6749 §5.2）以 `invalid_client` 表示 client 認證失敗。
+    /// **尚未實際觀測過 Anthropic 回這個值** —— 依規格比對字串而非狀態碼（規格允許 400 或 401）。
+    static func explained(_ failure: FetchFailure) -> FetchFailure {
+        guard failure.detail.contains("invalid_client") else { return failure }
+        return FetchFailure(
+            kind: .invalidClient, httpStatus: failure.httpStatus,
+            detail: "續期被拒：client ID 無效（invalid_client）。官方可能已更換 —— "
+                  + "可在選單「進階」填入新的 client ID，查法見 README。"
+        )
+    }
+
+    /// 只有續期鏈本身失效才丟掉自己的憑證。
+    ///
+    /// **`invalid_client` 不丟** —— 那是 client ID 錯了，refresh token 本身可能還是好的。
+    /// 丟掉等於親手弄斷一條還能用的鏈，而重新種子拿到的 Claude Code 那份多半早已作廢。
+    static func shouldDiscard(after failure: FetchFailure) -> Bool {
+        switch failure.kind {
+        case .invalidClient: return false
+        case .auth: return true
+        default: return failure.detail.contains("invalid_grant")
+        }
+    }
+
     func needsRenewal(_ oauth: [String: Any]) -> Bool {
         guard renewalEnabled else { return false }
-        guard let raw = oauth["expiresAt"] as? Double ?? (oauth["expiresAt"] as? Int).map(Double.init) else {
+        guard let expiry = Self.expiryDate(oauth) else {
             return false  // 沒有到期資訊就不主動續期
         }
-        let seconds = raw > 1e11 ? raw / 1000 : raw
-        return Date(timeIntervalSince1970: seconds).timeIntervalSinceNow < renewalMargin
+        return expiry.timeIntervalSinceNow < renewalMargin
     }
 
     /// token 已過期。續期關閉時用來給出可行動的訊息，而不是讓伺服器回一個沒頭沒尾的 401。
     func isExpired(_ oauth: [String: Any]) -> Bool {
+        guard let expiry = Self.expiryDate(oauth) else { return false }
+        return expiry < Date()
+    }
+
+    /// `expiresAt` 可能是毫秒或秒，用量級判斷。
+    static func expiryDate(_ oauth: [String: Any]) -> Date? {
         guard let raw = oauth["expiresAt"] as? Double ?? (oauth["expiresAt"] as? Int).map(Double.init) else {
-            return false
+            return nil
         }
-        let seconds = raw > 1e11 ? raw / 1000 : raw
-        return Date(timeIntervalSince1970: seconds) < Date()
+        return Date(timeIntervalSince1970: raw > 1e11 ? raw / 1000 : raw)
     }
 
     struct Renewal {
@@ -192,17 +244,7 @@ public actor ClaudeCredentialSource: CredentialSource {
     }
 
     func requestRenewal(refreshToken: String) async throws -> Renewal {
-        var request = URLRequest(url: Self.tokenEndpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue(userAgent.value, forHTTPHeaderField: "User-Agent")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "grant_type": "refresh_token",
-            "refresh_token": refreshToken,
-            "client_id": Self.clientID
-        ])
-
+        let request = try Self.renewalRequest(refreshToken: refreshToken, clientID: clientID(), userAgent: userAgent)
         let body = try await HTTP.perform(request)
         guard let data = body.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -215,6 +257,20 @@ public actor ClaudeCredentialSource: CredentialSource {
             expiresIn: (json["expires_in"] as? NSNumber)?.doubleValue,
             scope: json["scope"] as? String
         )
+    }
+
+    static func renewalRequest(refreshToken: String, clientID: String, userAgent: UserAgent) throws -> URLRequest {
+        var request = URLRequest(url: tokenEndpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(userAgent.value, forHTTPHeaderField: "User-Agent")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "grant_type": "refresh_token",
+            "refresh_token": refreshToken,
+            "client_id": clientID
+        ])
+        return request
     }
 
     // MARK: - Keychain / 檔案
@@ -230,15 +286,31 @@ public actor ClaudeCredentialSource: CredentialSource {
     /// 讀取順序：**本 app 自己的項目 → 檔案 → Claude Code 的項目**。
     /// 最後那個是種子來源，只在我們還沒有自己的憑證時才會用到。
     func rawCredentials() throws -> Data {
-        if let mine = readKeychain(service: privateKeychainService) { return mine }
-        if let data = try? Data(contentsOf: fileURL) { return data }
+        if let mine = readKeychain(service: privateKeychainService) { return noting(.own, mine) }
+        if let data = try? Data(contentsOf: fileURL) { return noting(.file, data) }
         guard let seed = readKeychain(service: keychainService) else {
             throw FetchFailure(
                 kind: .auth,
                 detail: "找不到 Claude 憑證。請確認已安裝 Claude Code 並執行 `claude auth login`。"
             )
         }
-        return seed
+        return noting(.claudeCode, seed)
+    }
+
+    /// 只在來源**改變**時記錄 —— 每 5 分鐘讀一次，每次都記只會把真正的變化淹沒。
+    private func noting(_ origin: Origin, _ data: Data) -> Data {
+        if origin != lastOrigin {
+            let previous = lastOrigin?.rawValue ?? "（啟動）"
+            lastOrigin = origin
+            emit(.sourceChanged, "\(previous) → \(origin.rawValue)")
+        }
+        return data
+    }
+
+    private func emit(_ kind: CredentialEvent.Kind, _ detail: String) {
+        eventSink?(CredentialEvent(
+            service: .claude, occurredAt: Date(), kind: kind, source: lastOrigin?.rawValue, detail: detail
+        ))
     }
 
     func readKeychain(service: String) -> Data? {
@@ -282,5 +354,6 @@ public actor ClaudeCredentialSource: CredentialSource {
             kSecAttrService as String: privateKeychainService
         ] as CFDictionary)
         Self.log.notice("憑證鏈失效，已清除本 app 的 Keychain 項目，下次取樣重新種子")
+        emit(.discarded, "續期鏈失效，已清除本 app 的項目，下次取樣重新種子")
     }
 }

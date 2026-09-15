@@ -43,7 +43,13 @@ enum HTTP {
         case 200..<300:
             return body
         case 401:
-            throw FetchFailure(kind: .auth, httpStatus: 401, detail: "token 失效或已過期")
+            // 附上 body：401 不只一種原因（例如續期端點的 invalid_client），
+            // 只寫「token 失效」會把該換 client ID 的問題誤導成該重新登入。
+            let reason = body.prefix(160)
+            throw FetchFailure(
+                kind: .auth, httpStatus: 401,
+                detail: reason.isEmpty ? "token 失效或已過期" : "token 失效或已過期：\(reason)"
+            )
         case 403:
             // 兩種完全不同的 403：API 層的權限錯誤（JSON），與 Cloudflare 的風控頁（HTML）。
             // 補救方式不同，訊息必須分開，否則會叫人去查錯方向。

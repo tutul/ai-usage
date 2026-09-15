@@ -140,10 +140,12 @@ OpenAI 客服說法：「weekly window starts at the first message you send」�
 | `v_unknown_span` | 小時層級不可歸屬的區間，供圖表畫斜線帶 |
 | `v_window_summary` | 每個窗一列。`used_percent` = 最後觀測值（**權威，不經 delta**）、`peak_percent`、`observed_duration_seconds`、`ended_early`（是否被提前重置） |
 | `v_current` | menu bar 用的最新讀數，含 `window_started` |
-| `v_health` | `last_success_at` / `last_attempt_at` / `failures_total` / **`last_weekly_at`** |
+| `v_health` | `last_success_at` / `last_attempt_at` / `failures_total` / **`failures_24h`** / `slept_total` / **`last_weekly_at`** |
+| `credential_event`（表） | 憑證事件：`source_changed` / `renewed` / `renewal_failed` / `discarded` / `rejected`。**不含 token**（D-017） |
 
 `v_health` 分開量 `ok` 與 `last_weekly_at`：HTTP 成功不等於拿到週用量
 （窗可能換位或消失），兩者混在同一欄位會讓健康度誤報一切正常。
+失敗次數**不含 `slept`**（請求期間系統睡過）—— 那次沒有觀測，不是故障（D-017）。
 
 ## 第二條管線：對話紀錄的 token 分解
 
@@ -168,6 +170,8 @@ OpenAI 客服說法：「weekly window starts at the first message you send」�
   **不補跑**錯過的次數 —— 正是所需行為。代價是有 tolerance，**不保證每小時有樣本**。
   block 結束**必須** `completion(.finished)`，否則不會排下一次。
 - 額外觸發：`NSWorkspace.didWakeNotification`、app 啟動、使用者按重新整理。
+- **睡眠中的短暫喚醒也會觸發排程**，而且有時請求會成功（實測 162 次），所以**不跳過**。
+  每次請求前後記下牆上時間與 `systemUptime`（不計睡眠），差距超過 1 秒的網路失敗記為 `slept`（D-017）。
 - app 為 `LSUIElement`（無 Dock 圖示），activation policy 是 `.accessory` ——
   開視窗**不會**自動變前景，需明確 `NSApp.activate()` + `makeKeyAndOrderFront`。
 
@@ -175,13 +179,16 @@ OpenAI 客服說法：「weekly window starts at the first message you send」�
 
 | Provider | 來源 | 續期 |
 |---|---|---|
-| Claude | **讀**：自己的 `AIUsage-claude-credentials` → `~/.claude/.credentials.json` → Claude Code 的 `Claude Code-credentials`（種子）。**寫**：只寫自己的那個 | **本 app 自行續期**：過期前 5 分鐘換新，429 時退避 15 分鐘。**絕不寫 Claude Code 的項目**（會重設其分區清單，見 D-016）。續期鏈失效時自動清除自己的項目、重新種子 |
+| Claude | **讀**：自己的 `AIUsage-claude-credentials` → `~/.claude/.credentials.json` → Claude Code 的 `Claude Code-credentials`（種子）。**寫**：只寫自己的那個 | **本 app 自行續期**：過期前 5 分鐘換新，429 時退避 15 分鐘。**絕不寫 Claude Code 的項目**（會重設其分區清單，見 D-016）。續期鏈失效時自動清除自己的項目、重新種子（`invalid_client` 除外） |
 | Codex | `~/.codex/auth.json` | ChatGPT.app 負責，本 app **唯讀不寫回** |
 
 Claude 續期端點：`POST platform.claude.com/v1/oauth/token`，
-client_id `9d1c250a-e61b-44d9-88ed-5944d1962f5e`（從 CLI 執行檔取得的
-OAuth public client，非機密）。**此值目前寫死，屬單點故障** ——
-官方輪替後續期會永久失敗且顯示為 auth 錯誤，見 [TODO.md](TODO.md) #2。
+client_id 預設 `9d1c250a-e61b-44d9-88ed-5944d1962f5e`（從 CLI 執行檔取得的
+OAuth public client，非機密）。**可在選單「進階」覆寫**，存 `UserDefaults`
+（`claude.oauthClientID`），每次續期時才讀，改了立即生效（D-018）。
+
+憑證的每個轉折（來源改變、續期成敗、自癒、被用量端點拒絕）寫一筆 `credential_event`。
+系統日誌保存期太短，出事時常常已經查不到（D-017）。
 
 ## App 組態
 

@@ -59,6 +59,11 @@ app 是唯一 writer，外部分析工具為唯讀 reader —— 這是 WAL 最�
 | `blocked` | 403 且 body 非 JSON | UA／風控問題，**不是**認證問題 |
 | `rate_limited` | 429 | 什麼都不用做，會自動退避重試 |
 | `missing_window` | 回應成功但缺該窗 | 觀察，可能是端點改版 |
+| `slept` | 原本是 `network`，且請求期間系統睡過（牆上時間比 `systemUptime` 多 1 秒以上） | 什麼都不用做 —— **那次沒有觀測，不是故障**，不計入健康度（D-017） |
+| `invalid_client` | 續期端點回 `invalid_client` | 換 client ID（選單「進階」），**不是**重新登入；自癒不丟憑證（D-018） |
+
+**「沒觀測到」與「來源失敗」必須是兩種紀錄。** 混在一起，真正的故障會被淹沒 ——
+實測 7 天 208 筆「網路失敗」幾乎全是睡眠造成的。
 
 403 要看 body：Anthropic 的 API 層 `permission_error` 是 JSON，
 Cloudflare 的風控頁是 HTML。前者歸 `auth`，後者歸 `blocked`。
