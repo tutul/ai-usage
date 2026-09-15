@@ -3,6 +3,11 @@
 常駐 macOS menu bar，持續追蹤 **Claude** 與 **Codex** 訂閱的 weekly 用量百分比。
 每筆原始樣本永久存進本機 SQLite，可回溯任意區間的小時／日／週消耗。
 
+> **非官方工具。** 與 Anthropic、OpenAI 皆無關聯，也未經其認可。
+> 本 app 讀取的用量端點**沒有公開文件**，並沿用 Claude Code 的 OAuth client ID 續期憑證 ——
+> 兩者都可能無預警變更或被停用，屆時本 app 會失效。
+> 個人專案，不保證維護；請自行評估是否符合你所用服務的使用條款。
+
 ```
 menu bar 圖示（gauge，隨用量變色）
   └─ 點開 ─ 本週用量：Claude 61% / Codex 2%，重置倒數，資料新鮮度

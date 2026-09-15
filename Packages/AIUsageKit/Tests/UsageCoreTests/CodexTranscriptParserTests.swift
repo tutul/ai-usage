@@ -5,7 +5,7 @@ import Foundation
 /// fixture 照真實紀錄的形狀（已去除對話內容），數字取自實際觀測。
 private let sessionMeta = """
 {"timestamp":"2026-08-29T05:11:25.863Z","ordinal":0,"type":"session_meta",
-"payload":{"cwd":"/Users/tutu/Documents/Codex/2026-08-29/jo4","type":"session_meta"}}
+"payload":{"cwd":"/Users/me/Documents/Codex/2026-08-29/jo4","type":"session_meta"}}
 """
 
 private let turn1 = """
@@ -49,7 +49,7 @@ struct CodexTranscriptParserTests {
     func carriesCwdForward() throws {
         let rows = parse([sessionMeta, turn1, turn2SameOrdinal])
         #expect(rows.count == 2)
-        #expect(rows.allSatisfy { $0.cwd == "/Users/tutu/Documents/Codex/2026-08-29/jo4" })
+        #expect(rows.allSatisfy { $0.cwd == "/Users/me/Documents/Codex/2026-08-29/jo4" })
     }
 
     /// 回歸測試：ordinal 在檔內會重複，但那是真的不同記錄。

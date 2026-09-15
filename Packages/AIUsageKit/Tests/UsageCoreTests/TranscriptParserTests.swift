@@ -8,7 +8,7 @@ import Foundation
 /// **而且每一行都帶著同一份 usage**。
 private let blockA = """
 {"type":"assistant","uuid":"db1d2263-0000-0000-0000-000000000001","requestId":"req_abc",
-"sessionId":"sess_1","cwd":"/Users/tutu/program/tools/ai-usage","gitBranch":"main",
+"sessionId":"sess_1","cwd":"/Users/me/program/tools/ai-usage","gitBranch":"main",
 "timestamp":"2026-09-05T02:40:00.000Z",
 "message":{"usage":{"input_tokens":12,"cache_creation_input_tokens":3220,
 "cache_read_input_tokens":87389,"output_tokens":1478,
@@ -17,7 +17,7 @@ private let blockA = """
 
 private let blockB = """
 {"type":"assistant","uuid":"935850f7-0000-0000-0000-000000000002","requestId":"req_abc",
-"sessionId":"sess_1","cwd":"/Users/tutu/program/tools/ai-usage","gitBranch":"main",
+"sessionId":"sess_1","cwd":"/Users/me/program/tools/ai-usage","gitBranch":"main",
 "timestamp":"2026-09-05T02:40:00.000Z",
 "message":{"usage":{"input_tokens":12,"cache_creation_input_tokens":3220,
 "cache_read_input_tokens":87389,"output_tokens":1478,
