@@ -51,6 +51,14 @@ public struct HistoryChartView: View {
         }
     }
     private var chartUnit: Calendar.Component { calendarUnit }
+    /// 說明文字用的量詞。`displayName` 的「日」接在「這一」後面不通順。
+    private var bucketNoun: String {
+        switch granularity {
+        case .hour: "小時"
+        case .day:  "天"
+        case .week: "週"
+        }
+    }
 
     /// **必須與 `v_weekly` 的分桶一致（週一起算）。**
     /// `Calendar.current.firstWeekday` 隨地區設定 —— 台灣與美國是**週日**，
@@ -136,7 +144,7 @@ public struct HistoryChartView: View {
                 chart
             }
 
-            Text("線只連接相鄰且都有取樣的區間，**斷開處代表沒有取樣**，不補值。貼著 0 的小點 = 有取樣但用量沒變。**橘色大點**代表該筆消耗確實發生、但因取樣中斷而無法精確歸屬到這一小時，只能算在這附近。")
+            Text("線只連接相鄰且都有取樣的區間，**斷開處代表沒有取樣**，不補值。貼著 0 的小點 = 有取樣但用量沒變。**橘色大點**代表該筆消耗確實發生、但因取樣中斷而無法精確歸屬到這一\(bucketNoun)，只能算在這附近。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
