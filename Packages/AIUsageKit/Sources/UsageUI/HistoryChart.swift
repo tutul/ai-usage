@@ -7,7 +7,7 @@ import UsageStore
 ///
 /// 四種視覺，意義完全不同，不可混淆：
 /// - 折線上的藍點：該區間有用量，且可精確歸屬
-/// - 折線上的橘色大點：消耗確實發生，但取樣中斷，只能算在這附近
+/// - 折線上的橘色 ✕：消耗確實發生，但取樣中斷，只能算在這附近
 /// - 折線上貼著 0 的小點：有取樣，但用量無變化
 /// - 線斷開／完全空白：沒有取樣。**不補值、不連過去**
 public struct HistoryChartView: View {
@@ -144,7 +144,7 @@ public struct HistoryChartView: View {
                 chart
             }
 
-            Text("線只連接相鄰且都有取樣的區間，**斷開處代表沒有取樣**，不補值。貼著 0 的小點 = 有取樣但用量沒變。**橘色大點**代表該筆消耗確實發生、但因取樣中斷而無法精確歸屬到這一\(bucketNoun)，只能算在這附近。")
+            Text("線只連接相鄰且都有取樣的區間，**斷開處代表沒有取樣**，不補值。貼著 0 的小點 = 有取樣但用量沒變。**橘色 ✕** 代表該筆消耗確實發生、但因取樣中斷而無法精確歸屬到這一\(bucketNoun)，只能算在這附近。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
