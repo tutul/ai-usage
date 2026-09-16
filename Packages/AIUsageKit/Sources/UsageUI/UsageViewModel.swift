@@ -9,6 +9,8 @@ public final class UsageViewModel {
     public var readings: [CurrentReading] = []
     public var health: [Health] = []
     public var buckets: [Service: [UsageBucket]] = [:]
+    /// 顯示範圍內各服務的額度窗起點。用來說明「這一格裡面有幾個窗」。
+    public var windowSpans: [Service: [UsageDatabase.WindowSpan]] = [:]
     public var recentFetches: [RecentFetch] = []
     /// 日誌還有更多可載入。多要一筆來判斷，避免另外查一次 COUNT。
     public private(set) var hasMoreFetches = false
@@ -93,12 +95,17 @@ public final class UsageViewModel {
             let until = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: rangeEnd))?
                 .addingTimeInterval(-1)
             var loaded: [Service: [UsageBucket]] = [:]
+            var spans: [Service: [UsageDatabase.WindowSpan]] = [:]
             for service in Service.allCases {
                 loaded[service] = try database.buckets(
                     service: service, granularity: granularity, since: since, until: until
                 )
+                spans[service] = try database.windowSpans(
+                    service: service, from: since, to: until ?? .now
+                )
             }
             buckets = loaded
+            windowSpans = spans
             let day = DateFormatter()
             day.calendar = calendar
             day.dateFormat = "yyyy-MM-dd"

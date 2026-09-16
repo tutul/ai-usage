@@ -36,6 +36,7 @@ public struct HistoryChartView: View {
 
     private var granularity: Granularity { model.granularity }
     private var buckets: [UsageBucket] { model.buckets[service] ?? [] }
+    private var windowSpans: [UsageDatabase.WindowSpan] { model.windowSpans[service] ?? [] }
     private var bucketSeconds: TimeInterval {
         switch granularity {
         case .hour: 3600
@@ -606,6 +607,12 @@ public struct HistoryChartView: View {
                 if (bucket.usedPercent ?? 0) == 0 && (bucket.unknownPercent ?? 0) == 0 {
                     Text("有取樣，用量無變化").font(.caption2).foregroundStyle(.secondary)
                 }
+                if let note = windowNote(start) {
+                    Text(note)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Text("\(bucket.pairCount) 筆取樣")
                     .font(.caption2).foregroundStyle(.tertiary)
             } else {
@@ -617,6 +624,28 @@ public struct HistoryChartView: View {
         .padding(8)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
         .shadow(radius: 2)
+    }
+
+    /// 這一格裡面有幾個額度窗。
+    ///
+    /// **時間桶不是額度窗**：曆週從週一起算，額度窗以首次使用為錨點，還會被提前重置。
+    /// 一格含兩個窗時，百分比是兩個窗的加總，**可能超過 100%** ——
+    /// 那個數字是對的，但不說清楚就會被當成算錯。
+    /// 只在「多於一個窗」或「有提前重置」時才出現，否則每一格都掛一行等於沒說。
+    private func windowNote(_ start: Date) -> String? {
+        let end = bucketCalendar.date(byAdding: chartUnit, value: 1, to: start)
+            ?? start.addingTimeInterval(bucketSeconds)
+        let inside = windowSpans.filter { $0.startedAt >= start && $0.startedAt < end }
+        let early = inside.filter(\.endedEarly).count
+        if inside.count >= 2 {
+            let suffix = early > 0 ? "，其中 \(early) 次是提前重置" : ""
+            return "此\(granularity.displayName)含 \(inside.count) 個額度窗\(suffix)。"
+                 + "百分比是各窗加總，可能超過 100%。"
+        }
+        if early > 0 {
+            return "此\(granularity.displayName)的額度窗被提前重置（未用滿就換窗）。"
+        }
+        return nil
     }
 
     private func row(_ label: String, value: Double, color: Color) -> some View {

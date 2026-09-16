@@ -222,6 +222,10 @@ Gaps while the app wasn't running show honestly as breaks in the chart; they are
 | **Small dot on 0** | **Sampled, but usage didn't change** |
 | Break in the line, blank | **No samples in that interval** |
 
+**One bucket can contain more than one quota window, so the percentage can exceed 100%.** Calendar weeks start on Monday, while a quota window is anchored to first use and can be reset early (measured: 3 of Codex's 5 weekly windows ended early).
+When a bucket spans two windows, the charted percentage is their sum — that number is correct, and the hover detail says "此週含 N 個額度窗" (this week contains N quota windows).
+For a single window's usage, read `v_window_summary.used_percent`.
+
 **Codex's `used_percent` has integer resolution only (1%).** At hourly granularity most dots sit on 0,
 then one jumps by 1 — that's not a bug, it's the nature of the data source. Daily / weekly granularity is where it becomes meaningful.
 

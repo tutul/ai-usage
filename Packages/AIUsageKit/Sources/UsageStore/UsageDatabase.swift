@@ -369,6 +369,47 @@ public final class UsageDatabase: Sendable {
         }
     }
 
+    /// 一個額度窗的起點與結果。
+    ///
+    /// **時間桶不是額度窗。** 曆週桶可能含兩個以上的窗（Codex 提前重置很常見 ——
+    /// 實測 5 個週窗有 3 個提前重置），那一格的百分比是各窗的加總，**可能超過 100%**。
+    /// 不講清楚就會被當成算錯。
+    public struct WindowSpan: Sendable, Hashable {
+        public let seq: Int
+        public let startedAt: Date
+        public let usedPercent: Double
+        /// 排定的 resets_at 之前就換窗。仍在進行中或未開始時視為 false。
+        public let endedEarly: Bool
+    }
+
+    /// 已開始的窗，取**起點**落在範圍內的。
+    /// 跨進範圍的前一個窗，其消耗本來就算在更早的桶裡，不該再算進來。
+    public func windowSpans(
+        service: Service, windowKind: String = "weekly", from: Date, to: Date
+    ) throws -> [WindowSpan] {
+        try pool.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                SELECT window_seq, first_seen_at, used_percent, COALESCE(ended_early, 0) AS ended_early
+                  FROM v_window_summary
+                 WHERE service = ? AND window_kind = ? AND window_started = 1
+                   AND first_seen_at >= ? AND first_seen_at <= ?
+                 ORDER BY first_seen_at
+                """,
+                arguments: [service.rawValue, windowKind,
+                            Int(from.timeIntervalSince1970), Int(to.timeIntervalSince1970)]
+            ).map { row in
+                WindowSpan(
+                    seq: row["window_seq"],
+                    startedAt: Date(timeIntervalSince1970: TimeInterval(row["first_seen_at"] as Int)),
+                    usedPercent: row["used_percent"] ?? 0,
+                    endedEarly: (row["ended_early"] as Int) == 1
+                )
+            }
+        }
+    }
+
     // MARK: - 對話紀錄匯入
 
     public struct ImportResult: Sendable {

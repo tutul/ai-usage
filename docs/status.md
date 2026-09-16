@@ -26,9 +26,10 @@
 | 憑證事件紀錄（`credential_event`） | ✅ 2026-09-15 起 |
 | Claude client ID 可覆寫 | ✅ 選單「進階」 |
 | 窗身分未知（`resets_at` 為 NULL）不誤判成重置 | ✅ 2026-09-16 起，歷史一併修正 |
+| hover 說明該格含幾個額度窗、是否提前重置 | ✅ 2026-09-16 |
 
 資料累積起點：2026-08-28 22:32:40，目前 10,496 筆樣本、11,325 筆快取請求紀錄。
-測試：60 個，`cd Packages/AIUsageKit && swift test`。
+測試：62 個，`cd Packages/AIUsageKit && swift test`。
 Migration：001–011 已套用。
 簽章：Apple Development（Personal Team），`TeamIdentifier=2PUS5K7TA4`。
 
@@ -41,6 +42,10 @@ Migration：001–011 已套用。
   08-30 平均 6.7 分、82% 在 6 分內，非睡眠時段也出現過連續 25–35 分的間隔。
   **目前的頻率已足夠**：跨整點的樣本對全都落在門檻內，實際歸屬率接近 100%。
 - **Codex 解析度 1%**（整數百分比），小時層級偏粗。
+- **時間桶不是額度窗，桶的百分比可能超過 100%。** 曆週從週一起算，額度窗以首次使用
+  為錨點且可能被提前重置。實測 session 的週桶已達 641%、日桶 278%；weekly 桶目前
+  最高 71%（Claude）／55%（Codex，該格含兩個窗）。圖表 Y 軸自動縮放，畫得出來；
+  hover 明細會說明該格含幾個窗。單一窗的用量讀 `v_window_summary.used_percent`。
 - **delta 加總是近似值**（`regress` 夾擠為 0 會微幅高估）。
   精確值讀 `v_window_summary.used_percent`。
 - **本地時區分桶由讀取端 TZ 決定。**
