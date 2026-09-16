@@ -2,7 +2,7 @@
 
 下一步見 [TODO.md](TODO.md)。
 
-**最後更新：2026-09-15**
+**最後更新：2026-09-16**
 
 > 🟢 憑證續期與 Keychain 授權都已解決（D-016）。app 以 Apple Development 憑證簽章，
 > 分區清單改以 teamid 釘住，不再反覆要求鑰匙圈密碼。
@@ -25,10 +25,11 @@
 | 睡眠中斷不計為失敗（`slept`） | ✅ 2026-09-15 起；舊資料不回填 |
 | 憑證事件紀錄（`credential_event`） | ✅ 2026-09-15 起 |
 | Claude client ID 可覆寫 | ✅ 選單「進階」 |
+| 窗身分未知（`resets_at` 為 NULL）不誤判成重置 | ✅ 2026-09-16 起，歷史一併修正 |
 
 資料累積起點：2026-08-28 22:32:40，目前 10,496 筆樣本、11,325 筆快取請求紀錄。
-測試：57 個，`cd Packages/AIUsageKit && swift test`。
-Migration：001–010 已套用。
+測試：60 個，`cd Packages/AIUsageKit && swift test`。
+Migration：001–011 已套用。
 簽章：Apple Development（Personal Team），`TeamIdentifier=2PUS5K7TA4`。
 
 ## 已知限制（設計上接受的）
@@ -53,6 +54,9 @@ Migration：001–010 已套用。
 
 ## 觀察中
 
+- ~~**日用量偶爾暴增**~~ —— ✅ **已解決（2026-09-16，見 D-019）**。
+  端點在重置那一秒回 `resets_at: null`，被判成換窗而把當下的百分比整包算成新增用量。
+  改為「身分未知沿用前一個窗」，migration 011。歷史數字隨推導修正（原始樣本未動）。
 - **睡眠中斷分類的實機效果**（2026-09-15 15:58 上線）—— 目前只有單元測試。
   下一次過夜睡眠後查：
   `SELECT error_kind, COUNT(*) FROM fetch WHERE completed_at > 1789459137 AND ok = 0 GROUP BY 1`，

@@ -85,6 +85,12 @@ OpenAI 客服說法：「weekly window starts at the first message you send」�
 `window_started = 0` 的樣本其 `effective_resets_at` 視為 NULL；
 「未開始 ⟷ 已開始」的轉換即為一次真正的窗界線。
 
+**但「伺服器沒給 `resets_at`」是另一回事 —— 那是身分未知，不是窗未開始。**
+實測 2026-09-16 08:59:59（週窗重置的那一秒）端點回
+`"seven_day": {"utilization": 38.0, "resets_at": null}`。
+身分未知的樣本**沿用前一個窗**，不製造界線（D-019）——
+把它當成換窗會讓 delta 直接給當下的百分比，那一天憑空多出 38%。
+
 ## 資料表
 
 | 表 | 內容 |
@@ -102,6 +108,10 @@ OpenAI 客服說法：「weekly window starts at the first message you send」�
 為每筆樣本標上 `window_seq`。只有 `effective_resets_at` 移動超過
 `reset_tolerance_seconds`(120) 才遞增。真正換窗會移動約 7 天，抖動只有 1 秒以內 ——
 兩者相差 5 個數量級，容差可以乾淨分開。
+
+**窗界線只由「身分可判定」的樣本決定**：`resets_at` 為 NULL 的樣本沿用前一筆的
+`window_seq`。若那一刻其實真的換了窗，百分比會下降而落入 `regress` 夾擠為 0 ——
+**寧可低估，不可憑空生出用量**（D-019）。
 
 ### `v_sample_delta` — 相鄰配對與分類
 
