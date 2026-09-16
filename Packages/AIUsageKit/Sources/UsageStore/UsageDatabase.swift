@@ -377,13 +377,19 @@ public final class UsageDatabase: Sendable {
     public struct WindowSpan: Sendable, Hashable {
         public let seq: Int
         public let startedAt: Date
+        /// 該窗最後一次被觀測到的時間。仍在進行中的窗即為最近一次取樣。
+        public let endedAt: Date
         public let usedPercent: Double
         /// 排定的 resets_at 之前就換窗。仍在進行中或未開始時視為 false。
         public let endedEarly: Bool
     }
 
-    /// 已開始的窗，取**起點**落在範圍內的。
-    /// 跨進範圍的前一個窗，其消耗本來就算在更早的桶裡，不該再算進來。
+    /// 已開始、且與範圍**有重疊**的窗。
+    ///
+    /// **判準是重疊，不是起點落在範圍內。** 一個窗可能從上一格延續進來 ——
+    /// 實測 2026-09-16：Claude 的舊窗 09-09 開始、今天 08:59 結束，新窗今天 09:04 開始，
+    /// 兩個窗都對「9/14 那一週」有貢獻，但只有一個的起點在該週內。
+    /// 只數起點會漏掉一半，而那正是「加總可能超過 100%」的情況。
     public func windowSpans(
         service: Service, windowKind: String = "weekly", from: Date, to: Date
     ) throws -> [WindowSpan] {
@@ -391,18 +397,20 @@ public final class UsageDatabase: Sendable {
             try Row.fetchAll(
                 db,
                 sql: """
-                SELECT window_seq, first_seen_at, used_percent, COALESCE(ended_early, 0) AS ended_early
+                SELECT window_seq, first_seen_at, last_seen_at, used_percent,
+                       COALESCE(ended_early, 0) AS ended_early
                   FROM v_window_summary
                  WHERE service = ? AND window_kind = ? AND window_started = 1
-                   AND first_seen_at >= ? AND first_seen_at <= ?
+                   AND first_seen_at <= ? AND last_seen_at >= ?
                  ORDER BY first_seen_at
                 """,
                 arguments: [service.rawValue, windowKind,
-                            Int(from.timeIntervalSince1970), Int(to.timeIntervalSince1970)]
+                            Int(to.timeIntervalSince1970), Int(from.timeIntervalSince1970)]
             ).map { row in
                 WindowSpan(
                     seq: row["window_seq"],
                     startedAt: Date(timeIntervalSince1970: TimeInterval(row["first_seen_at"] as Int)),
+                    endedAt: Date(timeIntervalSince1970: TimeInterval(row["last_seen_at"] as Int)),
                     usedPercent: row["used_percent"] ?? 0,
                     endedEarly: (row["ended_early"] as Int) == 1
                 )

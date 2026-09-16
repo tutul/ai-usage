@@ -102,7 +102,7 @@ struct WindowSpanTests {
         return (db, base)
     }
 
-    @Test("範圍內的窗起點、用量與提前重置標記")
+    @Test("範圍內的窗、用量與提前重置標記")
     func spansWithinRange() throws {
         let (db, base) = try twoWindows()
         let spans = try db.windowSpans(service: .claude, from: base.addingTimeInterval(-60),
@@ -113,13 +113,23 @@ struct WindowSpanTests {
         #expect(spans.last?.endedEarly == false, "仍在進行中不算提前結束")
     }
 
-    /// 只取**起點**落在範圍內的 —— 跨進來的前一個窗，消耗本來就算在更早的桶。
-    @Test("只算起點落在範圍內的窗")
-    func onlyStartsInsideRange() throws {
+    /// 實測 2026-09-16：Claude 的舊窗 09-09 開始、當天 08:59 結束，新窗當天 09:04 開始。
+    /// 「9/14 那一週」有兩個窗在消耗，但只有一個的**起點**落在該週內 ——
+    /// 只數起點會漏掉一半，而那正是「加總可能超過 100%」的情況。
+    @Test("起點在更早、但延續進範圍的窗也要算")
+    func spanStartingBeforeRangeCounts() throws {
         let (db, base) = try twoWindows()
-        let spans = try db.windowSpans(service: .claude, from: base.addingTimeInterval(700),
+        // 範圍從第一個窗的中間開始：它的起點在範圍之前，但仍與範圍重疊
+        let spans = try db.windowSpans(service: .claude, from: base.addingTimeInterval(300),
                                        to: base.addingTimeInterval(3600))
-        #expect(spans.count == 1)
-        #expect(spans.first?.usedPercent == 2)
+        #expect(spans.count == 2, "跨進來的窗一樣有消耗算在這一格")
+    }
+
+    @Test("完全沒有重疊的窗不算")
+    func spansOutsideRangeExcluded() throws {
+        let (db, base) = try twoWindows()
+        let spans = try db.windowSpans(service: .claude, from: base.addingTimeInterval(-7200),
+                                       to: base.addingTimeInterval(-3600))
+        #expect(spans.isEmpty)
     }
 }

@@ -635,8 +635,10 @@ public struct HistoryChartView: View {
     private func windowNote(_ start: Date) -> String? {
         let end = bucketCalendar.date(byAdding: chartUnit, value: 1, to: start)
             ?? start.addingTimeInterval(bucketSeconds)
-        let inside = windowSpans.filter { $0.startedAt >= start && $0.startedAt < end }
-        let early = inside.filter(\.endedEarly).count
+        // **重疊**，不是起點落在格內 —— 從上一格延續進來的窗一樣有消耗算在這一格。
+        let inside = windowSpans.filter { $0.startedAt < end && $0.endedAt >= start }
+        // 只算「在這一格裡結束」的提前重置，否則會把更早那一格的事報在這裡。
+        let early = inside.filter { $0.endedEarly && $0.endedAt >= start && $0.endedAt < end }.count
         if inside.count >= 2 {
             let suffix = early > 0 ? "，其中 \(early) 次是提前重置" : ""
             return "此\(granularity.displayName)含 \(inside.count) 個額度窗\(suffix)。"
