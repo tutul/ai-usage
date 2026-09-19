@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Security
 import os
 import UsageCore
@@ -56,6 +57,19 @@ public actor ClaudeCredentialSource: CredentialSource {
     private let renewalFlight = SingleFlight<String>()
 
     private var lastOrigin: Origin?
+
+    /// 已知失效的 refresh token 指紋。**只存雜湊，不存 token。**
+    ///
+    /// 續期鏈斷掉之後，自癒會回頭拿 Claude Code 的那份，而那份多半也早就失效 ——
+    /// 於是每 5 分鐘拿同一個死 token 去敲一次認證端點（實測 2026-09-18～19 敲了一整天）。
+    /// 記住指紋，同一個 token 就不再送網路請求，直接給出「請重新登入」。
+    /// 使用者重新登入後 token 會換，指紋對不上，自然恢復嘗試。
+    private var deadRefreshFingerprint: String?
+
+    /// 直接標記某個 refresh token 已失效。供測試驗證「不再送網路請求」這條路徑。
+    func markRefreshTokenDead(_ token: String) {
+        deadRefreshFingerprint = Self.fingerprint(token)
+    }
 
     let fileURL: URL
     /// Claude Code 的項目。**唯讀** —— 寫它會重設它的分區清單。
@@ -116,6 +130,9 @@ public actor ClaudeCredentialSource: CredentialSource {
         guard let refreshToken = oauth["refreshToken"] as? String else {
             throw FetchFailure(kind: .auth, detail: "Claude token 已過期且無 refreshToken，請執行 `claude auth login`。")
         }
+        if deadRefreshFingerprint == Self.fingerprint(refreshToken) {
+            throw Self.loginExpired
+        }
         if let blockedUntil = renewalBlockedUntil, blockedUntil > Date() {
             let minutes = max(1, Int(blockedUntil.timeIntervalSinceNow / 60))
             throw FetchFailure(
@@ -156,7 +173,11 @@ public actor ClaudeCredentialSource: CredentialSource {
             emit(.renewalFailed, "\(failure.kind.rawValue)：\(failure.detail)")
             if failure.kind == .rateLimited {
                 renewalBlockedUntil = Date().addingTimeInterval(Self.renewalCooldown)
-            } else if Self.shouldDiscard(after: failure) {
+            }
+            if failure.kind == .loginExpired {
+                deadRefreshFingerprint = Self.fingerprint(refreshToken)
+            }
+            if Self.shouldDiscard(after: failure) {
                 // 續期鏈斷了 —— 多半是使用者重新登入、把 refresh token 換掉了。
                 // 丟掉自己那份，下次取樣就會回頭從 Claude Code 的項目重新種子。
                 discardPrivateCredentials()
@@ -164,6 +185,7 @@ public actor ClaudeCredentialSource: CredentialSource {
             throw failure
         }
         renewalBlockedUntil = nil
+        deadRefreshFingerprint = nil
 
         let returned = renewed.refreshToken != nil
         let rotated = renewed.refreshToken.map { $0 != refreshToken } ?? false
@@ -191,15 +213,31 @@ public actor ClaudeCredentialSource: CredentialSource {
         return renewed.accessToken
     }
 
+    /// 續期鏈斷了，需要人重新登入。訊息就是補救步驟本身 ——
+    /// 原始回應是 `{"error": "invalid_grant", ...}`，對使用者毫無意義。
+    static let loginExpired = FetchFailure(
+        kind: .loginExpired,
+        detail: "Claude 的登入已失效（refresh token 過期或已被換掉）。"
+              + "在終端機執行 `claude auth login` 重新登入，本 app 下次取樣會自動接上。"
+    )
+
     /// OAuth 規格（RFC 6749 §5.2）以 `invalid_client` 表示 client 認證失敗。
     /// **尚未實際觀測過 Anthropic 回這個值** —— 依規格比對字串而非狀態碼（規格允許 400 或 401）。
     static func explained(_ failure: FetchFailure) -> FetchFailure {
-        guard failure.detail.contains("invalid_client") else { return failure }
-        return FetchFailure(
-            kind: .invalidClient, httpStatus: failure.httpStatus,
-            detail: "續期被拒：client ID 無效（invalid_client）。官方可能已更換 —— "
-                  + "可在選單「進階」填入新的 client ID，查法見 README。"
-        )
+        if failure.detail.contains("invalid_client") {
+            return FetchFailure(
+                kind: .invalidClient, httpStatus: failure.httpStatus,
+                detail: "續期被拒：client ID 無效（invalid_client）。官方可能已更換 —— "
+                      + "可在選單「進階」填入新的 client ID，查法見 README。"
+            )
+        }
+        if failure.detail.contains("invalid_grant") { return loginExpired }
+        return failure
+    }
+
+    /// **只存雜湊，不存 token。** 用來認出「這個 token 已經試過、是死的」。
+    static func fingerprint(_ token: String) -> String {
+        SHA256.hash(data: Data(token.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
     /// 只有續期鏈本身失效才丟掉自己的憑證。
@@ -209,7 +247,7 @@ public actor ClaudeCredentialSource: CredentialSource {
     static func shouldDiscard(after failure: FetchFailure) -> Bool {
         switch failure.kind {
         case .invalidClient: return false
-        case .auth: return true
+        case .auth, .loginExpired: return true
         default: return failure.detail.contains("invalid_grant")
         }
     }

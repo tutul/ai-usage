@@ -95,6 +95,12 @@ public enum FetchErrorKind: String, Sendable {
     /// 續期端點不認這個 client ID。補救是換 client ID，**不是**重新登入 ——
     /// 所以不能併入 `auth`，否則使用者會去重新登入而白忙，自癒也會誤丟還能用的憑證。
     case invalidClient = "invalid_client"
+    /// refresh token 過期或已被換掉，整條續期鏈斷了。
+    ///
+    /// 與 `auth` 分開：`auth` 是「開一下對應的 app 就會自己好」，這個**一定要人去重新登入**。
+    /// 實測 2026-09-18：登入後第 28 天，即使每 8 小時續期一次、token 一直在輪替，
+    /// 整條鏈仍然到期 —— **輪替不會延長登入本身的壽命**。
+    case loginExpired = "login_expired"
 }
 
 public struct FetchFailure: Error, Sendable {

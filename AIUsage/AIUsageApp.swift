@@ -81,6 +81,18 @@ struct AIUsageApp: App {
         }
     }
 
+    /// 與 showHistory 同樣的 activation 處理 —— LSUIElement app 開視窗不會自動變前景。
+    @MainActor
+    private func showLoginRemedy() {
+        openWindow(id: "login-remedy")
+        NSApp.activate()
+        DispatchQueue.main.async {
+            NSApp.activate()
+            NSApp.windows.first { $0.identifier?.rawValue.contains("login-remedy") == true }?
+                .makeKeyAndOrderFront(nil)
+        }
+    }
+
     @MainActor
     private func historyWindow() -> NSWindow? {
         NSApp.windows.first { window in
@@ -97,7 +109,8 @@ struct AIUsageApp: App {
                     tracking: state.tracking,
                     clientID: state.clientID,
                     onRefresh: { state.refreshNow() },
-                    onOpenHistory: { showHistory() }
+                    onOpenHistory: { showHistory() },
+                    onFixLogin: { showLoginRemedy() }
                 )
             } else {
                 VStack(alignment: .leading, spacing: 8) {
@@ -130,5 +143,10 @@ struct AIUsageApp: App {
             }
         }
         .defaultSize(width: 760, height: 720)
+
+        Window("重新登入 Claude", id: "login-remedy") {
+            LoginRemedyView(onQuit: { NSApplication.shared.terminate(nil) })
+        }
+        .defaultSize(width: 520, height: 460)
     }
 }

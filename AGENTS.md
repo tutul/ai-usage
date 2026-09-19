@@ -61,6 +61,7 @@ open .build/xcode/Build/Products/Debug/AIUsage.app
 | 對「時間桶」查 `used_percent > 100` | 誤報 —— 一天含約 4.8 個 5 小時窗，session 日桶超過 100 是正常的 | 不變量在**單一窗**，不在時間桶。查 `v_window_summary` |
 | 睡眠中的短暫喚醒觸發取樣 | 取樣日誌塞滿 `The request timed out.`，看起來像網路或服務壞了 | 比對牆上時間與 `systemUptime`，睡過的記成 `slept`（D-017）。**別**在短暫喚醒時跳過取樣 —— 實測有 162 次成功 |
 | 端點在重置那一秒少給 `resets_at` | 那一天的用量憑空暴增（實測日用量 45%，真實約 7%） | NULL 是「身分未知」，不是「換窗」—— 沿用前一個窗（D-019） |
+| 續期鏈斷掉後繼續重試 | 每 5 分鐘拿同一個死 token 敲認證端點（實測敲了一整天） | 記住失效 token 的指紋（只存雜湊），換了新的才再試（D-020） |
 | 續期失敗一律丟憑證 | client ID 錯了也把還能用的 refresh token 丟掉，重新種子拿到的早已作廢 | `invalid_client` 不丟（D-018） |
 
 ## 驗證要求

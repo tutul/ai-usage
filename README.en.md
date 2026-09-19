@@ -159,8 +159,18 @@ Both services **reuse your existing login**; you don't need to prepare any token
 > and `/api/oauth/usage` will only return
 > `permission_error: OAuth token does not meet scope requirement user:profile`.
 
-Claude's refresh token expires after about 30 days, after which you need to run `claude auth login` again.
-The menu shows a clear reason rather than a cryptic error.
+### The login expires periodically (roughly monthly)
+
+**Measured 2026-09-18: the whole renewal chain expired on day 28 after login.** Renewing every 8 hours and rotating the token constantly does not help — **rotation does not extend the lifetime of the login itself**. This is routine, not a failure.
+
+When it expires the menu shows "Claude 的登入已失效…" (the Claude login is no longer valid). **Click that message** to open a remedy window with the commands already filled in (including your own team ID and account), ready to copy:
+
+1. Quit the app first — re-logging in rewrites the Keychain item, and the app reading it at the same time triggers a password dialog
+2. `claude auth login`
+3. Reset the Keychain partition list (the command is in the window)
+4. Reopen the app; the next sample picks it up automatically
+
+Meanwhile the app **stops hammering the auth endpoint** — a refresh token known to be dead is tried once, and retried only after you log in again and the token changes.
 
 ### If the client ID changes
 

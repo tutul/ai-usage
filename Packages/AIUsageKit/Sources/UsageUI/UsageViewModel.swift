@@ -153,6 +153,11 @@ public final class UsageViewModel {
         isStale(service, now: now) && !isBenignStale(service)
     }
 
+    /// 這個服務是不是「要人重新登入」才會好。UI 據此顯示修復按鈕。
+    public func needsLogin(_ service: Service) -> Bool {
+        failures[service]?.kind == FetchErrorKind.loginExpired.rawValue
+    }
+
     /// 停擺原因，已是可行動的句子。
     public func failureHint(_ service: Service) -> String? {
         guard let failure = failures[service] else { return nil }

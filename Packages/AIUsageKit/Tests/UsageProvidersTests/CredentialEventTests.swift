@@ -88,3 +88,41 @@ struct ClientIDRenewalTests {
         #expect(!ClaudeCredentialSource.shouldDiscard(after: .init(kind: .network, detail: "timed out")))
     }
 }
+
+@Suite("登入失效")
+struct LoginExpiredTests {
+    /// 原始回應是 `{"error": "invalid_grant", "error_description": "Refresh token expired"}`，
+    /// 對使用者毫無意義。實測 2026-09-18 就是這樣壞掉的。
+    @Test("invalid_grant -> 訊息就是補救步驟本身")
+    func invalidGrantBecomesActionable() {
+        let raw = FetchFailure(kind: .http, httpStatus: 400,
+                               detail: #"{"error": "invalid_grant", "error_description": "Refresh token expired"}"#)
+        let explained = ClaudeCredentialSource.explained(raw)
+        #expect(explained.kind == .loginExpired)
+        #expect(explained.detail.contains("claude auth login"))
+    }
+
+    /// 登入失效時仍要丟掉自己那份 —— 使用者重新登入後才接得回來。
+    @Test("loginExpired 會觸發自癒，invalid_client 不會")
+    func discardBehaviour() {
+        #expect(ClaudeCredentialSource.shouldDiscard(after: ClaudeCredentialSource.loginExpired))
+        #expect(!ClaudeCredentialSource.shouldDiscard(after: .init(kind: .invalidClient, detail: "")))
+    }
+
+    /// 實測 2026-09-18～19：續期鏈斷掉後，每 5 分鐘拿同一個死 token 去敲認證端點，敲了一整天。
+    @Test("已知失效的 refresh token 不再送網路請求")
+    func deadTokenSkipsNetwork() async throws {
+        let box = EventBox()
+        let source = try makeSource(box: box, expiresIn: -3600)   // 已過期 -> 會走續期
+        await source.markRefreshTokenDead("refresh-test")
+
+        await #expect(throws: FetchFailure.self) { try await source.accessToken() }
+        do {
+            _ = try await source.accessToken()
+        } catch let failure as FetchFailure {
+            #expect(failure.kind == .loginExpired)
+        }
+        #expect(!box.events.contains { $0.kind == .renewalFailed },
+                "有 renewal_failed 就代表真的送出去了，沒有跳過")
+    }
+}

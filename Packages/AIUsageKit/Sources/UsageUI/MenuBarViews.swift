@@ -6,6 +6,7 @@ public struct MenuBarContent: View {
     @Bindable var model: UsageViewModel
     let onRefresh: () -> Void
     let onOpenHistory: () -> Void
+    let onFixLogin: () -> Void
 
     let launchAtLogin: LaunchAtLogin
     let tracking: TrackingSettings
@@ -21,7 +22,8 @@ public struct MenuBarContent: View {
         tracking: TrackingSettings,
         clientID: ClaudeClientIDSettings,
         onRefresh: @escaping () -> Void,
-        onOpenHistory: @escaping () -> Void
+        onOpenHistory: @escaping () -> Void,
+        onFixLogin: @escaping () -> Void
     ) {
         self.model = model
         self.launchAtLogin = launchAtLogin
@@ -29,6 +31,7 @@ public struct MenuBarContent: View {
         self.clientID = clientID
         self.onRefresh = onRefresh
         self.onOpenHistory = onOpenHistory
+        self.onFixLogin = onFixLogin
     }
 
     private func applyClientID() {
@@ -46,7 +49,7 @@ public struct MenuBarContent: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(tracking.enabledServices, id: \.self) { service in
-                    ServiceRow(service: service, model: model)
+                    ServiceRow(service: service, model: model, onFixLogin: onFixLogin)
                 }
             }
 
@@ -158,6 +161,7 @@ public struct MenuBarContent: View {
 struct ServiceRow: View {
     let service: Service
     let model: UsageViewModel
+    let onFixLogin: () -> Void
 
     var body: some View {
         let reading = model.weekly(for: service)
@@ -185,11 +189,29 @@ struct ServiceRow: View {
             .font(.caption)
 
             if stale, let hint = model.failureHint(service) {
-                Text(hint)
-                    .font(.caption2)
-                    .foregroundStyle(model.needsAttention(service) ? .orange : .secondary)
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
+                // 需要重新登入時，訊息本身就是入口 —— 讀完就能直接點開步驟，
+                // 不必自己去翻 README 湊指令。
+                if model.needsLogin(service) {
+                    Button(action: onFixLogin) {
+                        HStack(alignment: .top, spacing: 4) {
+                            Text(hint)
+                                .lineLimit(3)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .multilineTextAlignment(.leading)
+                            Image(systemName: "chevron.right").font(.caption2)
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                    }
+                    .buttonStyle(.plain)
+                    .help("顯示修復步驟")
+                } else {
+                    Text(hint)
+                        .font(.caption2)
+                        .foregroundStyle(model.needsAttention(service) ? .orange : .secondary)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }

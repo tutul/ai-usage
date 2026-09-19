@@ -156,8 +156,21 @@ Keychain Access 的 GUI **看不到分區清單**，只能用這支工具查。
 > 打 `/api/oauth/usage` 只會得到
 > `permission_error: OAuth token does not meet scope requirement user:profile`。
 
-Claude 的 refresh token 約 30 天到期，屆時需重跑 `claude auth login`。
-選單會顯示明確原因，不會只給看不懂的錯誤。
+### 登入會定期到期（約一個月一次）
+
+**實測 2026-09-18：登入後第 28 天，整條續期鏈到期。** 每 8 小時續期一次、token 一直
+在輪替也沒用 —— **輪替延長不了登入本身的壽命**。這不是故障，是例行事項。
+
+到期時選單會顯示「Claude 的登入已失效…」，**點那行訊息**就會開啟修復視窗，
+裡面是填好的指令（含你自己的 team ID 與帳號），可直接複製：
+
+1. 先結束 app —— 重新登入會改寫 Keychain 項目，app 同時在讀會跳密碼視窗
+2. `claude auth login`
+3. 重設 Keychain 分區清單（指令視窗裡有）
+4. 重新打開 app，下次取樣自動接上
+
+期間本 app **不會反覆去敲認證端點** —— 已知失效的 refresh token 只試一次，
+等你重新登入、token 換了才會再試。
 
 ### client ID 換了怎麼辦
 
