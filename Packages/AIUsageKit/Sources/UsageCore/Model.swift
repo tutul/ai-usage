@@ -64,13 +64,21 @@ public struct UsageSnapshot: Sendable {
     public let windows: [UsageWindow]
     public let rawBody: String
     public let planType: String?
+    /// 使用者手上還有幾個可自己兌換的重置額度。回應裡沒有這個欄位時為 nil ——
+    /// **沒觀測到不等於 0**（Claude 恆為 nil；Codex 實測 2026-09-04 也曾短暫回 null）。
+    /// 用途是分辨提前重置是誰做的，見 D-021。
+    public let resetCredits: Int?
 
-    public init(service: Service, observedAt: Date, windows: [UsageWindow], rawBody: String, planType: String? = nil) {
+    public init(
+        service: Service, observedAt: Date, windows: [UsageWindow], rawBody: String,
+        planType: String? = nil, resetCredits: Int? = nil
+    ) {
         self.service = service
         self.observedAt = observedAt
         self.windows = windows
         self.rawBody = rawBody
         self.planType = planType
+        self.resetCredits = resetCredits
     }
 
     public var weekly: UsageWindow? { windows.first { $0.kind == .weekly } }

@@ -638,16 +638,34 @@ public struct HistoryChartView: View {
         // **重疊**，不是起點落在格內 —— 從上一格延續進來的窗一樣有消耗算在這一格。
         let inside = windowSpans.filter { $0.startedAt < end && $0.endedAt >= start }
         // 只算「在這一格裡結束」的提前重置，否則會把更早那一格的事報在這裡。
-        let early = inside.filter { $0.endedEarly && $0.endedAt >= start && $0.endedAt < end }.count
+        let early = inside.filter { $0.endedEarly && $0.endedAt >= start && $0.endedAt < end }
+        let redeemed = early.filter { $0.resetCause == .redeemed }.count
+        let external = early.filter { $0.resetCause == .external }.count
         if inside.count >= 2 {
-            let suffix = early > 0 ? "，其中 \(early) 次是提前重置" : ""
+            let suffix = early.isEmpty
+                ? "" : "，其中 \(early.count) 次是提前重置\(causeNote(early.count, redeemed, external))"
             return "此\(granularity.displayName)含 \(inside.count) 個額度窗\(suffix)。"
                  + "百分比是各窗加總，可能超過 100%。"
         }
-        if early > 0 {
-            return "此\(granularity.displayName)的額度窗被提前重置（未用滿就換窗）。"
+        if early.isEmpty { return nil }
+        if redeemed > 0 {
+            return "此\(granularity.displayName)的額度窗被提前重置：你兌換了重置額度。"
         }
-        return nil
+        if external > 0 {
+            return "此\(granularity.displayName)的額度窗被 \(service.displayName) 提前重置（不是你兌換的）。"
+        }
+        return "此\(granularity.displayName)的額度窗被提前重置（未用滿就換窗）。"
+    }
+
+    /// 提前重置是誰做的。**原因不明的那幾次不提** —— 不知道就不說，不歸給任何一方。
+    private func causeNote(_ total: Int, _ redeemed: Int, _ external: Int) -> String {
+        if redeemed == 0 && external == 0 { return "" }
+        if redeemed == total { return "（你兌換了重置額度）" }
+        if external == total { return "（\(service.displayName) 主動重置，不是你兌換的）" }
+        var parts: [String] = []
+        if redeemed > 0 { parts.append("\(redeemed) 次是你兌換了重置額度") }
+        if external > 0 { parts.append("\(external) 次是 \(service.displayName) 主動重置") }
+        return "（\(parts.joined(separator: "、"))）"
     }
 
     private func row(_ label: String, value: Double, color: Color) -> some View {

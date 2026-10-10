@@ -42,9 +42,11 @@ public enum CodexUsageParser {
             windows.append(UsageWindow(kind: kind, percent: percent, resetsAt: resetsAt))
         }
 
+        let credits = (root["rate_limit_reset_credits"] as? [String: Any])?["available_count"] as? Int
+
         return UsageSnapshot(
             service: .codex, observedAt: observedAt, windows: windows,
-            rawBody: body, planType: root["plan_type"] as? String
+            rawBody: body, planType: root["plan_type"] as? String, resetCredits: credits
         )
     }
 }

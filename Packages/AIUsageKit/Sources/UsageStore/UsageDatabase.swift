@@ -169,6 +169,17 @@ public final class UsageDatabase: Sendable {
             )
             let fetchID = db.lastInsertedRowID
 
+            // 與 sample 同一套規則：有觀測到就寫（值沒變也寫），沒觀測到就不寫列。
+            if let credits = snapshot.resetCredits {
+                try db.execute(
+                    sql: """
+                    INSERT INTO reset_credit(fetch_id, service, observed_at, available_count)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    arguments: [fetchID, service, observedAt, credits]
+                )
+            }
+
             for window in snapshot.windows {
                 try db.execute(
                     sql: """
@@ -242,6 +253,20 @@ public final class UsageDatabase: Sendable {
             let previousResets: Int? = row["resets_at"]
             if previousPercent != window.percent { return "value_change" }
             if previousResets != window.resetsAt.map({ Int($0.timeIntervalSince1970) }) { return "value_change" }
+        }
+
+        // 重置額度數變了也留存 —— 那一筆原始回應就是「誰重置的」的證據。
+        // 實測 2026-10-05：額度到期少了一個，但百分比與 resets_at 都沒變。
+        if let credits = snapshot.resetCredits {
+            let previous = try Int.fetchOne(
+                db,
+                sql: """
+                SELECT available_count FROM reset_credit
+                 WHERE service = ? ORDER BY observed_at DESC, fetch_id DESC LIMIT 1
+                """,
+                arguments: [service]
+            )
+            if previous != credits { return "value_change" }
         }
         return nil
     }
@@ -382,6 +407,17 @@ public final class UsageDatabase: Sendable {
         public let usedPercent: Double
         /// 排定的 resets_at 之前就換窗。仍在進行中或未開始時視為 false。
         public let endedEarly: Bool
+        /// 提前重置是誰做的。沒有提前重置、或換窗前後沒觀測到重置額度數時為 nil ——
+        /// **nil 是「不知道」，不是「服務端做的」**。
+        public let resetCause: ResetCause?
+    }
+
+    /// 見 `v_window_reset_cause`。
+    public enum ResetCause: String, Sendable, Hashable {
+        /// 換窗前後重置額度少了 —— 使用者自己兌換的。
+        case redeemed
+        /// 換窗前後都有觀測、額度沒少 —— 服務端主動重置。
+        case external
     }
 
     /// 已開始、且與範圍**有重疊**的窗。
@@ -397,12 +433,15 @@ public final class UsageDatabase: Sendable {
             try Row.fetchAll(
                 db,
                 sql: """
-                SELECT window_seq, first_seen_at, last_seen_at, used_percent,
-                       COALESCE(ended_early, 0) AS ended_early
-                  FROM v_window_summary
-                 WHERE service = ? AND window_kind = ? AND window_started = 1
-                   AND first_seen_at <= ? AND last_seen_at >= ?
-                 ORDER BY first_seen_at
+                SELECT w.window_seq, w.first_seen_at, w.last_seen_at, w.used_percent,
+                       COALESCE(w.ended_early, 0) AS ended_early, c.reset_cause
+                  FROM v_window_summary w
+                  LEFT JOIN v_window_reset_cause c
+                    ON c.service = w.service AND c.window_kind = w.window_kind
+                   AND c.window_seq = w.window_seq
+                 WHERE w.service = ? AND w.window_kind = ? AND w.window_started = 1
+                   AND w.first_seen_at <= ? AND w.last_seen_at >= ?
+                 ORDER BY w.first_seen_at
                 """,
                 arguments: [service.rawValue, windowKind,
                             Int(to.timeIntervalSince1970), Int(from.timeIntervalSince1970)]
@@ -412,7 +451,8 @@ public final class UsageDatabase: Sendable {
                     startedAt: Date(timeIntervalSince1970: TimeInterval(row["first_seen_at"] as Int)),
                     endedAt: Date(timeIntervalSince1970: TimeInterval(row["last_seen_at"] as Int)),
                     usedPercent: row["used_percent"] ?? 0,
-                    endedEarly: (row["ended_early"] as Int) == 1
+                    endedEarly: (row["ended_early"] as Int) == 1,
+                    resetCause: (row["reset_cause"] as String?).flatMap(ResetCause.init(rawValue:))
                 )
             }
         }

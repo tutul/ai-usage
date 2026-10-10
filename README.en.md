@@ -236,6 +236,9 @@ Gaps while the app wasn't running show honestly as breaks in the chart; they are
 When a bucket spans two windows, the charted percentage is their sum — that number is correct, and the hover detail says "此週含 N 個額度窗" (this week contains N quota windows).
 For a single window's usage, read `v_window_summary.used_percent`.
 
+**Early resets say who triggered them (Codex only, for now).** Codex lets you bank reset credits and redeem them yourself, and OpenAI also clears quotas on its own — both look like "window replaced before it was used up" on the chart.
+The app records how many reset credits you hold on every fetch; if the count drops across the window change, you redeemed one. When it can't tell, it just says "reset early" and doesn't guess.
+
 **Codex's `used_percent` has integer resolution only (1%).** At hourly granularity most dots sit on 0,
 then one jumps by 1 — that's not a bug, it's the nature of the data source. Daily / weekly granularity is where it becomes meaningful.
 
@@ -294,6 +297,8 @@ sqlite3 "$HOME/Library/Application Support/AIUsage/usage.sqlite" \
 | `v_window_summary` | Actual usage per window (**not derived from deltas — the most accurate**), including `ended_early` |
 | `v_health` | Sampling health, including `last_weekly_at` and `failures_24h` (failure counts exclude sleep interruptions) |
 | `credential_event` (table) | Credential events: source changes, renewal success / failure, self-healing, rejection by the usage endpoint (with remaining token lifetime at that moment). **No tokens** |
+| `reset_credit` (table) | How many redeemable reset credits you held at each fetch (Codex only, for now) |
+| `v_window_reset_cause` | Who reset a window that ended early: `redeemed` (you) / `external` (the service) / `NULL` (unknown) |
 
 ⚠️ **Don't put the DB file on iCloud Drive / Dropbox / a network drive** — WAL depends on shared memory.
 

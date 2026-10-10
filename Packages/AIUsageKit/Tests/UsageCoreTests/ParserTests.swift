@@ -22,6 +22,22 @@ let codexSessionAsPrimary = """
 "credits":{"has_credits":false,"balance":"0"}}
 """
 
+/// 2026-10-10 實測的完整回應（已刪去 user_id／account_id／email）。
+let codexWithResetCredits = """
+{"plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false,
+"primary_window":{"used_percent":33,"limit_window_seconds":18000,
+"reset_after_seconds":14748,"reset_at":1791616754},
+"secondary_window":{"used_percent":5,"limit_window_seconds":604800,
+"reset_after_seconds":601548,"reset_at":1792203554}},
+"code_review_rate_limit":null,"additional_rate_limits":null,
+"model_usage":{"gpt-6-astra":{"available":true,"available_at":null,"credits_would_enable":false}},
+"credits":{"has_credits":false,"unlimited":false,"overage_limit_reached":false,"balance":"0",
+"approx_local_messages":[0,0],"approx_cloud_messages":[0,0]},
+"spend_control":{"reached":false,"individual_limit":null},
+"rate_limit_reached_type":null,"promo":null,
+"rate_limit_reset_credits":{"available_count":3,"applicable_available_count":0}}
+"""
+
 let claudeUsage = """
 {"five_hour":{"utilization":45.0,"resets_at":"2026-08-21T13:49:59.858588+00:00","limit_dollars":null},
 "seven_day":{"utilization":30.0,"resets_at":"2026-08-26T00:59:59.858620+00:00","limit_dollars":null},
@@ -66,6 +82,26 @@ struct CodexParserTests {
         let a = try CodexUsageParser.parse(body: codexWeeklyAsPrimary, observedAt: .now).weekly
         let b = try CodexUsageParser.parse(body: codexSessionAsPrimary, observedAt: .now).weekly
         #expect(a == b)
+    }
+
+    @Test("讀出可兌換的重置額度數")
+    func resetCredits() throws {
+        let s = try CodexUsageParser.parse(body: codexWithResetCredits, observedAt: .now)
+        #expect(s.resetCredits == 3)
+        #expect(s.windows.count == 2, "多讀一個欄位不影響窗的解析")
+    }
+
+    /// 2026-09-04 09:47 實測：`"rate_limit_reset_credits": null`，前後幾分鐘都是 2。
+    /// 沒觀測到不等於 0 —— 寫成 0 會被當成「額度用光了」。
+    @Test("重置額度欄位為 null 或不存在 -> nil，不是 0")
+    func resetCreditsAbsent() throws {
+        let nulled = codexWithResetCredits.replacingOccurrences(
+            of: #""rate_limit_reset_credits":{"available_count":3,"applicable_available_count":0}"#,
+            with: #""rate_limit_reset_credits":null"#
+        )
+        #expect(nulled != codexWithResetCredits)
+        #expect(try CodexUsageParser.parse(body: nulled, observedAt: .now).resetCredits == nil)
+        #expect(try CodexUsageParser.parse(body: codexSessionAsPrimary, observedAt: .now).resetCredits == nil)
     }
 
     @Test("缺少 rate_limit 時歸類為 parse 錯誤")

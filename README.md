@@ -237,6 +237,10 @@ strings "$(realpath "$(which claude)")" | grep -o 'platform.claude.com/oauth/cod
 一格含兩個窗時，圖上的百分比是各窗加總 —— 那個數字是對的，hover 明細會寫出
 「此週含 N 個額度窗」。單一窗的用量請讀 `v_window_summary.used_percent`。
 
+**提前重置會寫出是誰做的（目前只有 Codex）。** Codex 可以把重置額度存起來自己兌換，
+OpenAI 也會主動清空額度 —— 兩種在圖上都是「未用滿就換窗」。本 app 記下每次抓取時
+你手上有幾個重置額度，換窗前後少了一個就是你兌換的；看不出來的就只寫「提前重置」，不猜。
+
 **Codex 的 `used_percent` 只有整數解析度（1%）。** 小時粒度下多數點會貼著 0，
 然後某個跳 1 —— 那不是壞掉，是資料源的性質。日／週粒度才有意義。
 
@@ -295,6 +299,8 @@ sqlite3 "$HOME/Library/Application Support/AIUsage/usage.sqlite" \
 | `v_window_summary` | 每個窗的實際用量（**不經 delta 推導，最精確**），含 `ended_early` |
 | `v_health` | 取樣健康度，含 `last_weekly_at`、`failures_24h`（失敗次數不含睡眠中斷） |
 | `credential_event`（表） | 憑證事件：來源改變、續期成敗、自癒、被用量端點拒絕（含當時剩餘效期）。**不含 token** |
+| `reset_credit`（表） | 每次抓取時手上有幾個可兌換的重置額度（目前只有 Codex） |
+| `v_window_reset_cause` | 被提前重置的窗是誰重置的：`redeemed`（你兌換）／`external`（服務端主動）／`NULL`（不知道） |
 
 ⚠️ **DB 檔不可放在 iCloud Drive / Dropbox / 網路磁碟** —— WAL 依賴 shared memory。
 

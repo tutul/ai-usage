@@ -152,6 +152,8 @@ OpenAI 客服說法：「weekly window starts at the first message you send」�
 | `v_current` | menu bar 用的最新讀數，含 `window_started` |
 | `v_health` | `last_success_at` / `last_attempt_at` / `failures_total` / **`failures_24h`** / `slept_total` / **`last_weekly_at`** |
 | `credential_event`（表） | 憑證事件：`source_changed` / `renewed` / `renewal_failed` / `discarded` / `rejected`。**不含 token**（D-017） |
+| `reset_credit`（表） | 每次抓取觀測到的「可兌換重置額度」數。目前只有 Codex 有。回應沒有這個欄位時不寫列（D-021） |
+| `v_window_reset_cause` | 每個被提前重置的窗一列。`reset_cause` = `redeemed`（使用者兌換）／`external`（服務端主動）／`NULL`（不知道），附換窗前後的額度數 |
 
 `v_health` 分開量 `ok` 與 `last_weekly_at`：HTTP 成功不等於拿到週用量
 （窗可能換位或消失），兩者混在同一欄位會讓健康度誤報一切正常。
