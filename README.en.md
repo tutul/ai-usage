@@ -248,9 +248,10 @@ doesn't catch up on missed runs after waking), which has tolerance, so the actua
 **Sleep interruptions don't count as failures.** While asleep, a Mac briefly wakes and triggers sampling, and the request is often frozen by the next sleep and times out.
 These show in the sampling log as a grey "睡眠中斷" (Interrupted by sleep); they don't count as failures and don't make the menu warn.
 
-**Being offline doesn't count as a failure either.** When a fetch fails for a network reason, the app asks Apple's connectivity check page (`captive.apple.com` — the one macOS itself uses to decide whether a Wi-Fi network has internet access) whether this Mac can reach the internet.
-If it can't, the attempt shows in the sampling log as a grey "離線" (Offline); it doesn't count as a failure and doesn't make the menu warn.
-**This is the only host the app contacts besides the two services themselves (their usage endpoints, plus Claude's credential-renewal endpoint)**, only after a fetch has already failed, and with no account information attached.
+**Having no network connection at all doesn't count as a failure either.** When a fetch fails for a network reason and the system reports no usable network path, the attempt shows in the sampling log as a grey "離線" (Offline); it doesn't count as a failure and doesn't make the menu warn.
+
+**But "Wi-Fi connected, no actual internet" is still recorded as a failure.** The system itself can't tell in that case, and telling would mean sending an extra request to a third party — this app only talks to the two services themselves and won't contact anyone else for this.
+So if the sampling log shows **a long unbroken run of `network` failures on both services at once** (usually `The request timed out.`), the Mac most likely had no internet at the time; the services weren't down.
 A real network outage while awake still counts as a failure.
 
 ## Cache tab

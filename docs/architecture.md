@@ -185,9 +185,12 @@ OpenAI 客服說法：「weekly window starts at the first message you send」�
 - 額外觸發：`NSWorkspace.didWakeNotification`、app 啟動、使用者按重新整理。
 - **睡眠中的短暫喚醒也會觸發排程**，而且有時請求會成功（實測 162 次），所以**不跳過**。
   每次請求前後記下牆上時間與 `systemUptime`（不計睡眠），差距超過 1 秒的網路失敗記為 `slept`（D-017）。
-- **抓取因網路失敗、又不是睡眠造成的，會多問一次「這台機器連得到網路嗎」**（D-022）。
-  對象是 Apple 的連線檢查頁；連續兩次不通就記為 `offline`。這一輪已經有人拿到 HTTP 回應時不問。
-  **讀取端一次查完所有服務**，不要逐個服務查 view（D-023）。
+- **抓取因網路失敗、又不是睡眠造成的，會看系統有沒有可用的網路路徑**（`NWPathMonitor`，D-022）。
+  沒有就記為 `offline`。不對外送任何請求，所以「Wi-Fi 連著但不通」分不出來，仍是 `network`。
+- **讀取端一次查完所有服務**，不要逐個服務查 view（D-023）。
+- **重讀在背景執行**（D-024）。`reload()` 在主執行緒上取好查詢條件的快照，查詢丟到背景，
+  結果回主執行緒指派；較舊的結果晚到就丟掉。畫圖用 `shownGranularity`（與分桶一起更新），
+  不用 `granularity`（使用者選的，可能還沒有對應的資料）。
 - app 為 `LSUIElement`（無 Dock 圖示），activation policy 是 `.accessory` ——
   開視窗**不會**自動變前景，需明確 `NSApp.activate()` + `makeKeyAndOrderFront`。
 
