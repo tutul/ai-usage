@@ -39,7 +39,45 @@ public final class UsageViewModel {
         return Calendar.current.date(byAdding: .day, value: -6, to: today) ?? today
     }
     public var failures: [Service: (kind: String, detail: String)] = [:]
-    public var loadError: String?  // 排程器也會寫入寫庫失敗訊息
+    /// **讀取**失敗。下一次重讀成功就清掉。
+    public var loadError: String?
+
+    /// 寫不進資料庫的服務。
+    ///
+    /// **與 `loadError` 分開，而且重讀成功不會清掉它。** 寫入失敗時通常還讀得出來，
+    /// 兩者共用一個欄位的話，訊息會被緊接著的重讀清掉 —— 原本就是這樣，
+    /// 等於寫入失敗從來沒有顯示過。而這是唯一看得到它的地方：樣本既然寫不進去，
+    /// 資料庫裡也不會留下任何痕跡。只有同一個服務之後寫成功才清掉。
+    public private(set) var writeFailures: [Service: WriteFailure] = [:]
+
+    public struct WriteFailure: Sendable, Hashable {
+        /// 第一次寫不進去的時間。持續失敗時不更新 —— 要知道的是「從什麼時候開始掉資料」。
+        public let since: Date
+        public let detail: String
+    }
+
+    /// 排程器每次寫入後回報結果。`error` 為 nil 代表這次寫成功了。
+    public func noteWrite(_ service: Service, error: (any Error)?, at now: Date = .now) {
+        guard let error else {
+            // 平常每次取樣都會走到這裡。沒有東西要清就不要動，免得畫面白白重畫。
+            if writeFailures[service] != nil { writeFailures[service] = nil }
+            return
+        }
+        writeFailures[service] = WriteFailure(
+            since: writeFailures[service]?.since ?? now, detail: String(describing: error)
+        )
+    }
+
+    /// 給選單顯示的句子。沒有寫入失敗時為 nil。
+    public var writeError: String? {
+        guard !writeFailures.isEmpty else { return nil }
+        return Service.allCases.compactMap { service in
+            writeFailures[service].map { failure in
+                let since = failure.since.formatted(date: .omitted, time: .shortened)
+                return "\(service.displayName) 自 \(since) 起寫不進資料庫，這段期間的樣本沒有存下來：\(failure.detail)"
+            }
+        }.joined(separator: "\n")
+    }
 
     let database: UsageDatabase
     /// 取樣間隔（秒）。逾此值的兩倍未成功取樣即視為停擺。

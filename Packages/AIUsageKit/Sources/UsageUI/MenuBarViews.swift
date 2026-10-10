@@ -56,6 +56,10 @@ public struct MenuBarContent: View {
             if let error = model.loadError {
                 Text(error).font(.caption).foregroundStyle(.red).lineLimit(2)
             }
+            // 寫入失敗另外顯示 —— 讀得出來不代表寫得進去
+            if let error = model.writeError {
+                Text(error).font(.caption).foregroundStyle(.red).lineLimit(4)
+            }
 
             Divider()
 

@@ -188,6 +188,8 @@ OpenAI 客服說法：「weekly window starts at the first message you send」�
 - **抓取因網路失敗、又不是睡眠造成的，會看系統有沒有可用的網路路徑**（`NWPathMonitor`，D-022）。
   沒有就記為 `offline`。不對外送任何請求，所以「Wi-Fi 連著但不通」分不出來，仍是 `network`。
 - **讀取端一次查完所有服務**，不要逐個服務查 view（D-023）。
+- **寫入失敗只能浮到畫面上**（寫不進去，資料庫裡自然不留痕）。`UsageViewModel.writeFailures`
+  按服務記下從什麼時候開始寫不進去，重讀不清它，該服務之後寫成功才清（D-025）。
 - **重讀在背景執行**（D-024）。`reload()` 在主執行緒上取好查詢條件的快照，查詢丟到背景，
   結果回主執行緒指派；較舊的結果晚到就丟掉。畫圖用 `shownGranularity`（與分桶一起更新），
   不用 `granularity`（使用者選的，可能還沒有對應的資料）。

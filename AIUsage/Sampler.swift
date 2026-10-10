@@ -61,6 +61,16 @@ final class Sampler {
         Task { await sampleAll() }
     }
 
+    /// 執行一次寫入並把成敗告訴 model。成功會清掉該服務先前的寫入失敗。
+    private func noteWrite(_ service: Service, _ write: () throws -> Void) {
+        do {
+            try write()
+            model.noteWrite(service, error: nil)
+        } catch {
+            model.noteWrite(service, error: error)
+        }
+    }
+
     func stop() {
         scheduler?.invalidate()
         scheduler = nil
@@ -90,19 +100,18 @@ final class Sampler {
                     ?? FetchFailure(kind: .network, detail: String(describing: error)))
                     .accountingForSleep(asleepSeconds: asleep)
                     .accountingForConnectivity(online: networkPath.hasRoute)
-                try? database.record(
-                    failure: failure,
-                    service: provider.service, startedAt: startedAt, completedAt: completedAt
-                )
+                // 失敗紀錄寫不進去也要浮上來 —— 否則連「抓不到」這件事都不會留痕。
+                noteWrite(provider.service) {
+                    try database.record(
+                        failure: failure,
+                        service: provider.service, startedAt: startedAt, completedAt: completedAt
+                    )
+                }
                 continue
             }
             // 寫入失敗是另一回事，不可標成取樣失敗 —— 而且此時也寫不進 DB，
             // 只能浮到 UI 上，否則會變成看不見的資料遺失。
-            do {
-                try database.record(snapshot)
-            } catch {
-                model.loadError = "寫入資料庫失敗（\(provider.service.rawValue)）：\(error)"
-            }
+            noteWrite(provider.service) { try database.record(snapshot) }
         }
         // 等資料真的到畫面上才算完成 —— 「重新整理」按鈕的轉圈靠這個結束。
         await model.reload().value
