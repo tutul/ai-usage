@@ -247,6 +247,10 @@ doesn't catch up on missed runs after waking), which has tolerance, so the actua
 
 **Sleep interruptions don't count as failures.** While asleep, a Mac briefly wakes and triggers sampling, and the request is often frozen by the next sleep and times out.
 These show in the sampling log as a grey "睡眠中斷" (Interrupted by sleep); they don't count as failures and don't make the menu warn.
+
+**Being offline doesn't count as a failure either.** When a fetch fails for a network reason, the app asks Apple's connectivity check page (`captive.apple.com` — the one macOS itself uses to decide whether a Wi-Fi network has internet access) whether this Mac can reach the internet.
+If it can't, the attempt shows in the sampling log as a grey "離線" (Offline); it doesn't count as a failure and doesn't make the menu warn.
+**This is the only host the app contacts besides the two services themselves (their usage endpoints, plus Claude's credential-renewal endpoint)**, only after a fetch has already failed, and with no account information attached.
 A real network outage while awake still counts as a failure.
 
 ## Cache tab
@@ -295,7 +299,7 @@ sqlite3 "$HOME/Library/Application Support/AIUsage/usage.sqlite" \
 | `v_unknown_span` | Intervals that can't be attributed |
 | `v_window_seq` | Window number for each sample |
 | `v_window_summary` | Actual usage per window (**not derived from deltas — the most accurate**), including `ended_early` |
-| `v_health` | Sampling health, including `last_weekly_at` and `failures_24h` (failure counts exclude sleep interruptions) |
+| `v_health` | Sampling health, including `last_weekly_at` and `failures_24h` (failure counts exclude sleep interruptions and offline periods) |
 | `credential_event` (table) | Credential events: source changes, renewal success / failure, self-healing, rejection by the usage endpoint (with remaining token lifetime at that moment). **No tokens** |
 | `reset_credit` (table) | How many redeemable reset credits you held at each fetch (Codex only, for now) |
 | `v_window_reset_cause` | Who reset a window that ended early: `redeemed` (you) / `external` (the service) / `NULL` (unknown) |

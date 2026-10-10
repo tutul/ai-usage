@@ -100,6 +100,10 @@ public enum FetchErrorKind: String, Sendable {
     /// 睡眠中的短暫喚醒會照常觸發取樣，系統接著回去睡、請求被凍結，醒來時早已逾時。
     /// 記成 `network` 會讓健康度與取樣日誌塞滿假失敗（實測 7 天 208 筆）。
     case slept
+    /// 這台機器當時連不到網際網路 —— 與 `slept` 同一類：**沒有觀測，不是服務故障**。見 D-022。
+    /// 與 `network` 分開，因為補救方式不同：`network` 是「網路通、但連不上這個服務」，
+    /// 值得去查服務狀態；這個只要等網路回來。
+    case offline
     /// 續期端點不認這個 client ID。補救是換 client ID，**不是**重新登入 ——
     /// 所以不能併入 `auth`，否則使用者會去重新登入而白忙，自癒也會誤丟還能用的憑證。
     case invalidClient = "invalid_client"
@@ -136,6 +140,16 @@ public extension FetchFailure {
         return FetchFailure(
             kind: .slept, httpStatus: httpStatus,
             detail: "請求期間系統睡眠約 \(Int(asleepSeconds.rounded())) 秒，本次未觀測（非服務故障）：\(detail)"
+        )
+    }
+
+    /// **只重新分類 `network`。** 拿得到 HTTP 回應（401、429……）就代表網路是通的。
+    /// 先判睡眠再判離線：睡著時網路本來就不通，那是睡眠造成的，不該記成離線。
+    func accountingForConnectivity(online: Bool) -> FetchFailure {
+        guard kind == .network, !online else { return self }
+        return FetchFailure(
+            kind: .offline, httpStatus: httpStatus,
+            detail: "這台 Mac 連不到網際網路，本次未觀測（非服務故障）：\(detail)"
         )
     }
 }

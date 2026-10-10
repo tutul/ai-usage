@@ -19,19 +19,23 @@ final class Sampler {
     private var scheduler: NSBackgroundActivityScheduler?
     private var wakeObserver: (any NSObjectProtocol)?
     let tracking: TrackingSettings
+    /// 這台機器現在連得到網際網路嗎。只在抓取因網路失敗之後才問（見 D-022）。
+    private let isOnline: @Sendable () async -> Bool
 
     init(
         database: UsageDatabase,
         providers: [any UsageProvider],
         model: UsageViewModel,
         tracking: TrackingSettings,
-        interval: TimeInterval
+        interval: TimeInterval,
+        isOnline: @escaping @Sendable () async -> Bool = { await ConnectivityProbe().isOnline() }
     ) {
         self.database = database
         self.providers = providers
         self.model = model
         self.tracking = tracking
         self.interval = interval
+        self.isOnline = isOnline
     }
 
     func start() {
@@ -72,6 +76,8 @@ final class Sampler {
     ///
     /// 每次取樣都重新讀設定，所以使用者切換「追蹤的服務」立即生效，不必重啟。
     func sampleAll() async {
+        // 這一輪有沒有人拿到過 HTTP 回應。有的話網路就是通的，後面的網路失敗不必再問。
+        var reachedSomeone = false
         for provider in providers where tracking.isEnabled(provider.service) {
             let startedAt = Date()
             // 不計入睡眠的時鐘。與牆上時間的差距 = 請求期間睡了多久（見 D-017）
@@ -83,14 +89,22 @@ final class Sampler {
                 let completedAt = Date()
                 let asleep = completedAt.timeIntervalSince(startedAt)
                     - (ProcessInfo.processInfo.systemUptime - startedAwake)
-                let failure = (error as? FetchFailure)
-                    ?? FetchFailure(kind: .network, detail: String(describing: error))
+                var failure = ((error as? FetchFailure)
+                    ?? FetchFailure(kind: .network, detail: String(describing: error)))
+                    .accountingForSleep(asleepSeconds: asleep)
+                if failure.httpStatus != nil { reachedSomeone = true }
+                // 先判睡眠再判離線（順序見 `accountingForConnectivity`）。
+                // completedAt 已經取好了 —— 多問的這一下不算進這次抓取的時間。
+                if failure.kind == .network, !reachedSomeone {
+                    failure = failure.accountingForConnectivity(online: await isOnline())
+                }
                 try? database.record(
-                    failure: failure.accountingForSleep(asleepSeconds: asleep),
+                    failure: failure,
                     service: provider.service, startedAt: startedAt, completedAt: completedAt
                 )
                 continue
             }
+            reachedSomeone = true
             // 寫入失敗是另一回事，不可標成取樣失敗 —— 而且此時也寫不進 DB，
             // 只能浮到 UI 上，否則會變成看不見的資料遺失。
             do {

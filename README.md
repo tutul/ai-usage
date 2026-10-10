@@ -249,6 +249,11 @@ OpenAI 也會主動清空額度 —— 兩種在圖上都是「未用滿就換�
 
 **睡眠中斷不算失敗。** Mac 睡眠時會短暫喚醒並觸發取樣，請求常被接著的睡眠凍結而逾時。
 這種情況在取樣紀錄裡顯示為灰色的「睡眠中斷」，不計入失敗次數，也不會讓選單示警。
+
+**沒有網路也不算失敗。** 抓取因網路問題失敗時，本 app 會向 Apple 的連線檢查頁
+（`captive.apple.com`，macOS 自己判斷 Wi-Fi 有沒有網路用的那一個）確認這台 Mac 連不連得到網路。
+連不到就在取樣紀錄裡顯示為灰色的「離線」，同樣不計入失敗次數、不讓選單示警。
+**這是兩家服務（用量端點，以及 Claude 的憑證續期端點）以外，本 app 唯一會連的對象**，只在抓取已經失敗時才連，不帶任何帳號資訊。
 清醒時真的斷網照樣算失敗。
 
 ## 快取分頁
@@ -297,7 +302,7 @@ sqlite3 "$HOME/Library/Application Support/AIUsage/usage.sqlite" \
 | `v_unknown_span` | 不可歸屬的區間 |
 | `v_window_seq` | 為每筆樣本標上窗編號 |
 | `v_window_summary` | 每個窗的實際用量（**不經 delta 推導，最精確**），含 `ended_early` |
-| `v_health` | 取樣健康度，含 `last_weekly_at`、`failures_24h`（失敗次數不含睡眠中斷） |
+| `v_health` | 取樣健康度，含 `last_weekly_at`、`failures_24h`（失敗次數不含睡眠中斷與離線） |
 | `credential_event`（表） | 憑證事件：來源改變、續期成敗、自癒、被用量端點拒絕（含當時剩餘效期）。**不含 token** |
 | `reset_credit`（表） | 每次抓取時手上有幾個可兌換的重置額度（目前只有 Codex） |
 | `v_window_reset_cause` | 被提前重置的窗是誰重置的：`redeemed`（你兌換）／`external`（服務端主動）／`NULL`（不知道） |

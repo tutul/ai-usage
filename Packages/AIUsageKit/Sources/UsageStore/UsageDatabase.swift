@@ -79,9 +79,9 @@ public struct Health: Sendable, Hashable {
     public let lastSuccessAt: Date?
     public let lastAttemptAt: Date?
     public let lastWeeklyAt: Date?
-    /// 不含 `slept`。永久累計，看歷史用。
+    /// 不含 `slept` 與 `offline`。永久累計，看歷史用。
     public let failuresTotal: Int
-    /// 不含 `slept`。判斷「現在健不健康」看這個。
+    /// 不含 `slept` 與 `offline`。判斷「現在健不健康」看這個。
     public let failures24h: Int
 }
 
@@ -624,19 +624,31 @@ public final class UsageDatabase: Sendable {
     ///
     /// **跳過 `slept`**：那次沒有觀測，不能拿來判斷服務現況。
     /// 否則睡一覺起來，一筆真正的 auth 失敗會被睡眠中斷蓋掉而看不見。
+    ///
+    /// **`offline` 也是沒有觀測，但不能直接跳過**：離線可以持續很久，
+    /// 跳過它的話畫面只會顯示「資料停了」而沒有任何解釋。所以分兩步 ——
+    /// 最後一次有觀測的結果若是失敗，那仍然是最該處理的事（例如登入過期，
+    /// 網路回來也不會自己好）；若是成功，才回報「現在離線」。
     public func currentFailure(service: Service) throws -> (kind: String, detail: String)? {
         try pool.read { db in
-            guard let row = try Row.fetchOne(
-                db,
-                sql: """
-                SELECT ok, error_kind, error_detail FROM fetch
-                 WHERE service = ? AND COALESCE(error_kind, '') <> 'slept'
-                 ORDER BY completed_at DESC, id DESC LIMIT 1
-                """,
-                arguments: [service.rawValue]
-            ) else { return nil }
-            guard (row["ok"] as Int) == 0 else { return nil }
-            return (row["error_kind"] ?? "unknown", row["error_detail"] ?? "")
+            func latest(excluding kinds: String) throws -> Row? {
+                try Row.fetchOne(
+                    db,
+                    sql: """
+                    SELECT ok, error_kind, error_detail FROM fetch
+                     WHERE service = ? AND COALESCE(error_kind, '') NOT IN (\(kinds))
+                     ORDER BY completed_at DESC, id DESC LIMIT 1
+                    """,
+                    arguments: [service.rawValue]
+                )
+            }
+            func failure(_ row: Row?) -> (kind: String, detail: String)? {
+                guard let row, (row["ok"] as Int) == 0 else { return nil }
+                return (row["error_kind"] ?? "unknown", row["error_detail"] ?? "")
+            }
+            if let observed = failure(try latest(excluding: "'slept', 'offline'")) { return observed }
+            if let last = failure(try latest(excluding: "'slept'")), last.kind == "offline" { return last }
+            return nil
         }
     }
 

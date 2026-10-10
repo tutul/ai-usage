@@ -136,7 +136,8 @@ public final class UsageViewModel {
     /// 不該和「取樣真的失敗」用同一種警示強度 —— 狼來了喊多了就沒人看。
     public func isBenignStale(_ service: Service) -> Bool {
         guard let kind = failures[service]?.kind else { return false }
-        return kind == "auth" || kind == "rate_limited"
+        // 離線同理：網路回來就會自己好，而且使用者多半早就知道自己沒網路。
+        return kind == "auth" || kind == "rate_limited" || kind == FetchErrorKind.offline.rawValue
     }
 
     /// 需要你注意的停擺（排除良性者）。

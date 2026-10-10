@@ -774,8 +774,12 @@ public struct HistoryChartView: View {
 
     @ViewBuilder
     private func logRow(_ fetch: RecentFetch) -> some View {
-        // 睡眠中斷不是失敗，只是那一次沒有觀測。用灰色，別和真正的失敗搶注意力。
-        let slept = fetch.errorKind == "slept"
+        // 睡眠中斷與離線都不是失敗，只是那一次沒有觀測。用灰色，別和真正的失敗搶注意力。
+        let unobserved: (symbol: String, label: String)? = switch fetch.errorKind {
+        case "slept": ("moon.zzz.fill", "睡眠中斷")
+        case "offline": ("wifi.slash", "離線")
+        default: nil
+        }
         HStack(spacing: 8) {
             Text(fetch.completedAt, format: .dateTime.hour().minute().second())
                 .font(.caption2.monospacedDigit())
@@ -786,9 +790,9 @@ public struct HistoryChartView: View {
                 .font(.caption2)
                 .frame(width: 48, alignment: .leading)
 
-            Image(systemName: fetch.ok ? "checkmark.circle.fill" : (slept ? "moon.zzz.fill" : "xmark.circle.fill"))
+            Image(systemName: fetch.ok ? "checkmark.circle.fill" : (unobserved?.symbol ?? "xmark.circle.fill"))
                 .font(.caption2)
-                .foregroundStyle(fetch.ok ? Color.green : (slept ? Color.secondary : Color.orange))
+                .foregroundStyle(fetch.ok ? Color.green : (unobserved != nil ? Color.secondary : Color.orange))
 
             if fetch.ok {
                 Text(fetch.weeklyPercent.map { String(format: "%.0f%%", $0) } ?? "—")
@@ -799,9 +803,9 @@ public struct HistoryChartView: View {
                     Text("缺週窗").font(.caption2).foregroundStyle(.orange)
                 }
             } else {
-                Text(slept ? "睡眠中斷" : (fetch.errorKind ?? "失敗"))
+                Text(unobserved?.label ?? fetch.errorKind ?? "失敗")
                     .font(.caption2.weight(.medium))
-                    .foregroundStyle(slept ? Color.secondary : Color.orange)
+                    .foregroundStyle(unobserved != nil ? Color.secondary : Color.orange)
                     .frame(width: 90, alignment: .leading)
                 Text(fetch.errorDetail ?? "")
                     .font(.caption2)
