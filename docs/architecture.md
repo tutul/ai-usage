@@ -150,14 +150,15 @@ OpenAI 客服說法：「weekly window starts at the first message you send」�
 | `v_unknown_span` | 小時層級不可歸屬的區間，供圖表畫斜線帶 |
 | `v_window_summary` | 每個窗一列。`used_percent` = 最後觀測值（**權威，不經 delta**）、`peak_percent`、`observed_duration_seconds`、`ended_early`（是否被提前重置） |
 | `v_current` | menu bar 用的最新讀數，含 `window_started` |
-| `v_health` | `last_success_at` / `last_attempt_at` / `failures_total` / **`failures_24h`** / `slept_total` / **`last_weekly_at`** |
+| `v_health` | `last_success_at` / `last_attempt_at` / `failures_total` / **`failures_24h`** / `slept_total` / `offline_total` / **`last_weekly_at`** |
 | `credential_event`（表） | 憑證事件：`source_changed` / `renewed` / `renewal_failed` / `discarded` / `rejected`。**不含 token**（D-017） |
 | `reset_credit`（表） | 每次抓取觀測到的「可兌換重置額度」數。目前只有 Codex 有。回應沒有這個欄位時不寫列（D-021） |
-| `v_window_reset_cause` | 每個被提前重置的窗一列。`reset_cause` = `redeemed`（使用者兌換）／`external`（服務端主動）／`NULL`（不知道），附換窗前後的額度數 |
+| `v_window_reset_cause` | 每個被提前重置的窗一列。`reset_cause` = `redeemed`（使用者兌換）／`external`（服務端主動）／`NULL`（不知道），附換窗前後的額度數。同樣的欄位也在 `v_window_summary` 上 —— 圖表讀那一個，避免把窗推導算兩遍（D-023） |
 
 `v_health` 分開量 `ok` 與 `last_weekly_at`：HTTP 成功不等於拿到週用量
 （窗可能換位或消失），兩者混在同一欄位會讓健康度誤報一切正常。
-失敗次數**不含 `slept`**（請求期間系統睡過）—— 那次沒有觀測，不是故障（D-017）。
+失敗次數**不含 `slept`**（請求期間系統睡過）與 **`offline`**（這台機器連不到網路）——
+那次沒有觀測，不是故障（D-017、D-022）。
 
 ## 第二條管線：對話紀錄的 token 分解
 
@@ -184,6 +185,9 @@ OpenAI 客服說法：「weekly window starts at the first message you send」�
 - 額外觸發：`NSWorkspace.didWakeNotification`、app 啟動、使用者按重新整理。
 - **睡眠中的短暫喚醒也會觸發排程**，而且有時請求會成功（實測 162 次），所以**不跳過**。
   每次請求前後記下牆上時間與 `systemUptime`（不計睡眠），差距超過 1 秒的網路失敗記為 `slept`（D-017）。
+- **抓取因網路失敗、又不是睡眠造成的，會多問一次「這台機器連得到網路嗎」**（D-022）。
+  對象是 Apple 的連線檢查頁；連續兩次不通就記為 `offline`。這一輪已經有人拿到 HTTP 回應時不問。
+  **讀取端一次查完所有服務**，不要逐個服務查 view（D-023）。
 - app 為 `LSUIElement`（無 Dock 圖示），activation policy 是 `.accessory` ——
   開視窗**不會**自動變前景，需明確 `NSApp.activate()` + `makeKeyAndOrderFront`。
 
