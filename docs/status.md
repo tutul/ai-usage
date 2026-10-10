@@ -71,7 +71,9 @@ Migration：001–011 已套用。
   跨睡眠被凍結的請求都抓到了 —— 但「逾時大多會變成 `slept`」**不成立**，
   現在主要的失敗型態是另一種（見下一條）。
 
-- **30 秒逾時佔全部取樣約 16%，原因未明**（2026-10-10 記）。這是目前最大的開放問題：
+- ~~**30 秒逾時佔全部取樣約 16%**~~ —— ✅ **成因已確認（2026-10-10）：機器醒著但沒有網路。**
+  使用者確認那幾段時間確實長時間離線。不是端點或本 app 的問題，逾時上限不動。
+  剩下的是把它們從 `network` 分出一個 `offline`（TODO #9）。以下為當時的證據：
   | 證據 | 數字 |
   |---|---|
   | 失敗率 | Claude 16.0%、Codex 15.8%（幾乎相同） |
@@ -83,6 +85,32 @@ Migration：001–011 已套用。
   不是端點，也不是睡眠。期間 macOS 已升級到 **27.0.1**（原開發於 26.6），
   時間點與這個變化的關聯**尚未查證**。
   下一步：失敗時多記一點上下文（例如網路可達性），或在失敗時段手動用 `curl` 對照。
+
+  **同日補充 —— 「16%」不是均勻發生的。** 逾時是成段出現的：Claude 的 568 筆裡，
+  **540 筆落在 13 段連續失敗中**（每段 6 筆以上），單是 09-19 14:07～09-20 18:18 那一段
+  就有 327 筆（28 小時）。另外成功的請求**全部在 1 秒內完成**（Claude 5447/5447、
+  Codex 5635/5635），沒有任何一筆落在 2～30 秒之間 —— 不是「慢」，是「通」或「完全不通」。
+  錯誤訊息有 186 筆直接寫 `The Internet connection appears to be offline.`。
+  所以問題的形狀是「機器醒著但長時間沒有網路」，不是隨機掉包。各段起迄見 TODO #9。
+- **端點變動盤點（2026-10-10）** —— 用 `raw_payload` 裡六週的原始回應逐欄比對，
+  並對照本機 CLI（Claude Code 2.1.295、Codex 0.162.0）執行檔裡的字串。
+  **本 app 讀的欄位都沒變**，兩家每次抓取都仍是剛好 2 筆樣本。變的是周邊：
+
+  | 服務 | 變動 | 首見 | 對本 app 的意義 |
+  |---|---|---|---|
+  | Codex | `rate_limit_reset_credits.available_count`（使用者可存、可自己兌換的重置額度） | 一直都有 | **解釋了提前重置**：09-15 與 09-28 兩次 `ended_early` 都是使用者自己兌換（額度數 3→2，與換窗差一筆樣本）。兌換會同時清空 session 與 weekly，並**重新定錨** weekly。額度不定期發放（實測 09-04、09-05、09-23、09-30、10-08 各多一個）、30 天到期（09-05 發的在 10-05 消失） |
+  | Codex | `additional_rate_limits[]`（`gpt-reserve`，604800 秒） | 09-02～09-03 | 窗物件包在 `.rate_limit.primary_window` 底下，現行 parser 剛好讀不到。**若它是平的，會被當成第二個 weekly 寫進同一條序列** —— 認窗只看秒數不夠 |
+  | Codex | `chatpass.windows[]`（一組 604800 + 18000） | 09-30～10-02 | 另一個產品的額度，數字與主窗不同。parser 沒讀，正確 |
+  | Codex | `model_usage`、`rate_limit_reached_type`、`rate_limit_upsell` | 09-05／09-15 | 撞到上限時才有內容，可用來標示「這段時間是被擋住的」 |
+  | Claude | `seven_day_breakdown`（各介面佔比：Claude Code／Chats／Cowork／Other，另有 `window_started_at`） | 09-16 | `window_started_at` 恆等於 `resets_at − 7 天`，不是新資訊。佔比偶爾整包是 null |
+  | Claude | `iguana_necktie` 從 null 變成一個以美元計的額度（上限 100、11-05 重置） | 09-24 | 用途不明，不是 weekly，不要讀 |
+  | Claude | `cedar_ember`（回應裡是 null）＋ CLI 新增 `/limit-reset` | 09-15 | **使用者可自己觸發重置，且文案寫明「weekly reset day stays」** —— 百分比歸零但 `resets_at` 不變，現行以 `resets_at` 認窗會看不出來。本帳號尚未被授予，實測至今 0 次同窗下降 |
+  | Claude | CLI 改打 `/api/oauth/usage?at_wall=1&skip_spend=1`，逾時 5 秒 | — | 本 app 仍用不帶參數的版本、逾時 30 秒，目前可用 |
+  | Claude | `limits[]`（`kind`／`percent`／`severity`／`is_active`） | 一直都有 | 正規化的清單，`severity` 是官方自己的警戒分級（normal／warning／critical） |
+
+  兩個 `User-Agent` 都還寫著舊版號（`claude-code/2.0.0`、`codex_cli_rs/0.149.0 (Mac OS 26.6.2…)`），
+  近 14 天沒有任何 403／429，**目前沒被擋**。
+
 - ~~**09-13 那次 Claude auth 失敗的原因**~~ —— ✅ **已回答（2026-09-19）**。
   09-17 再次發生時 `credential_event` 記到 `rejected`：被拒當下 token 剩餘效期 **−8 分鐘**，
   也就是已經過期，不是提前被作廢。TODO #8 結案，不改行為。
