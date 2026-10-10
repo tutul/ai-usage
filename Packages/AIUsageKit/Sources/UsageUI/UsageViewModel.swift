@@ -14,7 +14,12 @@ public final class UsageViewModel {
     public var recentFetches: [RecentFetch] = []
     /// 日誌還有更多可載入。多要一筆來判斷，避免另外查一次 COUNT。
     public private(set) var hasMoreFetches = false
+    /// 使用者**選的**粒度。畫圖要用 `shownGranularity` —— 查詢在背景跑，
+    /// 選了「日」之後有一小段時間畫面上還是「小時」的分桶。
     public var granularity: Granularity = .hour
+    /// 目前 `buckets` 是用哪個粒度查出來的。與 `buckets` 一起更新，
+    /// 所以拿它來解讀分桶永遠對得上（拿 `granularity` 會把小時桶當成日桶畫）。
+    public private(set) var shownGranularity: Granularity = .hour
     /// 最近一次對話紀錄匯入的結果，供 UI 顯示「匯入了幾筆」。
     public var cacheImport: UsageDatabase.ImportResult?
     public var cacheRows: [UsageDatabase.CacheDailyRow] = []
@@ -45,11 +50,18 @@ public final class UsageViewModel {
     /// 背景取樣觸發的重讀不該把他捲到的位置吃掉。
     private var fetchLimit = UsageViewModel.fetchPageSize
 
+    /// 每次重讀遞增。結果回來時用它判斷是不是已經被更新的請求取代。
+    private var reloadGeneration = 0
+    private var appliedGeneration = 0
+
     public init(database: UsageDatabase) {
         self.database = database
     }
 
     /// 多取一筆判斷還有沒有下一頁，顯示時再丟掉。
+    ///
+    /// 這一個刻意留在主執行緒同步跑：按「更多」要立刻看到結果，而它走索引、
+    /// 與資料量無關（實測 1 ms）。其餘的查詢都在 `reload()` 的背景任務裡。
     private func loadFetchPage() {
         guard let page = try? database.recentFetches(limit: fetchLimit + 1) else { return }
         hasMoreFetches = page.count > fetchLimit
@@ -83,36 +95,116 @@ public final class UsageViewModel {
         loadFetchPage()
     }
 
-    public func reload() {
-        do {
-            readings = try database.current()
-            health = try database.health()
-            loadFetchPage()
-            earliestSample = try database.earliestSample()
-            let calendar = Calendar.current
-            let since = calendar.startOfDay(for: rangeStart)
+    /// 一次重讀要查什麼。在主執行緒上取好快照再交給背景 ——
+    /// 背景不可以回頭讀 model 的屬性。
+    struct ReloadRequest: Sendable {
+        let granularity: Granularity
+        let since: Date
+        let until: Date?
+        let cacheService: Service
+        let cacheFrom: String
+        let cacheTo: String
+        let fetchLimit: Int
+    }
+
+    struct Loaded: Sendable {
+        var readings: [CurrentReading] = []
+        var health: [Health] = []
+        var recentFetches: [RecentFetch] = []
+        var hasMoreFetches = false
+        var earliestSample: Date?
+        var buckets: [Service: [UsageBucket]] = [:]
+        var windowSpans: [Service: [UsageDatabase.WindowSpan]] = [:]
+        var cacheRows: [UsageDatabase.CacheDailyRow] = []
+        var failures: [Service: (kind: String, detail: String)] = [:]
+    }
+
+    private func makeRequest() -> ReloadRequest {
+        let calendar = Calendar.current
+        let day = DateFormatter()
+        day.calendar = calendar
+        day.dateFormat = "yyyy-MM-dd"
+        return ReloadRequest(
+            granularity: granularity,
+            since: calendar.startOfDay(for: rangeStart),
             // 迄日要含整天 —— 選 9/2 卻只到 9/2 00:00 會讓當天完全看不到。
-            let until = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: rangeEnd))?
-                .addingTimeInterval(-1)
-            // 兩家一次查完 —— 分開查不會比較快，只是把全部樣本多算一遍。
-            buckets = try database.buckets(granularity: granularity, since: since, until: until)
-            windowSpans = try database.windowSpans(from: since, to: until ?? .now)
-            let day = DateFormatter()
-            day.calendar = calendar
-            day.dateFormat = "yyyy-MM-dd"
-            cacheRows = (try? database.cacheDaily(
-                service: cacheService,
-                from: day.string(from: rangeStart), to: day.string(from: rangeEnd)
-            )) ?? []
-            var currentFailures: [Service: (kind: String, detail: String)] = [:]
-            for service in Service.allCases {
-                if let failure = try database.currentFailure(service: service) {
-                    currentFailures[service] = failure
-                }
+            until: calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: rangeEnd))?
+                .addingTimeInterval(-1),
+            cacheService: cacheService,
+            cacheFrom: day.string(from: rangeStart), cacheTo: day.string(from: rangeEnd),
+            fetchLimit: fetchLimit
+        )
+    }
+
+    /// 重讀全部顯示用的資料。**查詢在背景跑**，結果回主執行緒才指派。
+    ///
+    /// 這些查詢每次都把全部樣本推導一遍（view 用視窗函式，時間條件推不進去），
+    /// 成本隨資料量成長 —— 實測六週的資料約 0.4 秒。同步跑的話，每 5 分鐘取樣後、
+    /// 視窗取得焦點、切粒度或日期時，畫面都會卡這麼久（見 D-023）。
+    ///
+    /// 回傳的 Task 在結果套用後結束，需要「等資料到了再繼續」的呼叫端可以 await。
+    @discardableResult
+    public func reload() -> Task<Void, Never> {
+        reloadGeneration += 1
+        let generation = reloadGeneration
+        let request = makeRequest()
+        let database = database
+        return Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                Result { try Self.load(database, request) }
+            }.value
+            self?.apply(result, request: request, generation: generation)
+        }
+    }
+
+    nonisolated static func load(_ database: UsageDatabase, _ request: ReloadRequest) throws -> Loaded {
+        var loaded = Loaded()
+        loaded.readings = try database.current()
+        loaded.health = try database.health()
+        // 多取一筆判斷還有沒有下一頁，顯示時再丟掉。
+        let page = try database.recentFetches(limit: request.fetchLimit + 1)
+        loaded.hasMoreFetches = page.count > request.fetchLimit
+        loaded.recentFetches = Array(page.prefix(request.fetchLimit))
+        loaded.earliestSample = try database.earliestSample()
+        // 兩家一次查完 —— 分開查不會比較快，只是把全部樣本多算一遍。
+        loaded.buckets = try database.buckets(
+            granularity: request.granularity, since: request.since, until: request.until
+        )
+        loaded.windowSpans = try database.windowSpans(from: request.since, to: request.until ?? .now)
+        loaded.cacheRows = (try? database.cacheDaily(
+            service: request.cacheService, from: request.cacheFrom, to: request.cacheTo
+        )) ?? []
+        for service in Service.allCases {
+            if let failure = try database.currentFailure(service: service) {
+                loaded.failures[service] = failure
             }
-            failures = currentFailures
+        }
+        return loaded
+    }
+
+    /// **較舊的結果晚到就丟掉。** 連點兩次粒度時，先送出的查詢可能比較晚回來，
+    /// 照到達順序套用會讓畫面停在使用者已經離開的那個選項上。
+    func apply(_ result: Result<Loaded, any Error>, request: ReloadRequest, generation: Int) {
+        guard generation > appliedGeneration else { return }
+        appliedGeneration = generation
+        switch result {
+        case .success(let loaded):
+            readings = loaded.readings
+            health = loaded.health
+            // 查詢在跑的時候使用者可能按了「更多」。那一頁已經同步載入、筆數比較多，
+            // 不要拿這份比較短的蓋回去。
+            if request.fetchLimit == fetchLimit {
+                recentFetches = loaded.recentFetches
+                hasMoreFetches = loaded.hasMoreFetches
+            }
+            earliestSample = loaded.earliestSample
+            buckets = loaded.buckets
+            shownGranularity = request.granularity
+            windowSpans = loaded.windowSpans
+            cacheRows = loaded.cacheRows
+            failures = loaded.failures
             loadError = nil
-        } catch {
+        case .failure(let error):
             loadError = String(describing: error)
         }
     }

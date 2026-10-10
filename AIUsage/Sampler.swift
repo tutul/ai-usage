@@ -113,6 +113,7 @@ final class Sampler {
                 model.loadError = "寫入資料庫失敗（\(provider.service.rawValue)）：\(error)"
             }
         }
-        model.reload()
+        // 等資料真的到畫面上才算完成 —— 「重新整理」按鈕的轉圈靠這個結束。
+        await model.reload().value
     }
 }

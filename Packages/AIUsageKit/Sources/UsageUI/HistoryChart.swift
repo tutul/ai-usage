@@ -34,7 +34,9 @@ public struct HistoryChartView: View {
         self.onRefresh = onRefresh
     }
 
-    private var granularity: Granularity { model.granularity }
+    /// 畫圖用的粒度跟著**資料**走，不跟著選單走 —— 查詢在背景跑，
+    /// 剛切換的那一小段時間，畫面上的分桶還是上一個粒度的。
+    private var granularity: Granularity { model.shownGranularity }
     private var buckets: [UsageBucket] { model.buckets[service] ?? [] }
     private var windowSpans: [UsageDatabase.WindowSpan] { model.windowSpans[service] ?? [] }
     private var bucketSeconds: TimeInterval {
