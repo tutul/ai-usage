@@ -298,35 +298,53 @@ public final class UsageDatabase: Sendable {
         since: Date,
         until: Date? = nil
     ) throws -> [UsageBucket] {
+        try buckets(windowKind: windowKind, granularity: granularity, since: since, until: until)[service] ?? []
+    }
+
+    /// 所有服務一次查完。
+    ///
+    /// **不要改回逐個服務查。** 這些 view 用視窗函式推導 delta，`WHERE service = ?`
+    /// 推不進去 —— 不管查哪一家，都是把全部樣本算過一遍再篩（實測 2026-10-10：
+    /// 查一家 171 ms、兩家一起 184 ms）。分開查就是付兩次錢。
+    public func buckets(
+        windowKind: String = "weekly",
+        granularity: Granularity,
+        since: Date,
+        until: Date? = nil
+    ) throws -> [Service: [UsageBucket]] {
         try pool.read { db in
-            try Row.fetchAll(
+            var result: [Service: [UsageBucket]] = [:]
+            for row in try Row.fetchAll(
                 db,
                 sql: """
-                SELECT \(granularity.keyColumn) AS bucket_key,
+                SELECT service,
+                       \(granularity.keyColumn) AS bucket_key,
                        \(granularity.epochColumn) AS bucket_start,
                        used_percent, unknown_percent, pair_count, unattributed_pairs
                   FROM \(granularity.view)
-                 WHERE service = ? AND window_kind = ?
+                 WHERE window_kind = ?
                    AND \(granularity.epochColumn) >= ?
                    AND (? IS NULL OR \(granularity.epochColumn) <= ?)
                  ORDER BY bucket_start
                 """,
                 arguments: [
-                    service.rawValue, windowKind,
+                    windowKind,
                     Int(since.timeIntervalSince1970),
                     until.map { Int($0.timeIntervalSince1970) },
                     until.map { Int($0.timeIntervalSince1970) }
                 ]
-            ).map { row in
-                UsageBucket(
+            ) {
+                guard let service = Service(rawValue: row["service"]) else { continue }
+                result[service, default: []].append(UsageBucket(
                     key: row["bucket_key"],
                     start: Date(timeIntervalSince1970: TimeInterval(row["bucket_start"] as Int)),
                     usedPercent: row["used_percent"],
                     unknownPercent: row["unknown_percent"],
                     pairCount: row["pair_count"] ?? 0,
                     unattributedPairs: row["unattributed_pairs"] ?? 0
-                )
+                ))
             }
+            return result
         }
     }
 
@@ -412,7 +430,7 @@ public final class UsageDatabase: Sendable {
         public let resetCause: ResetCause?
     }
 
-    /// 見 `v_window_reset_cause`。
+    /// 見 `v_window_summary.reset_cause`。
     public enum ResetCause: String, Sendable, Hashable {
         /// 換窗前後重置額度少了 —— 使用者自己兌換的。
         case redeemed
@@ -429,32 +447,39 @@ public final class UsageDatabase: Sendable {
     public func windowSpans(
         service: Service, windowKind: String = "weekly", from: Date, to: Date
     ) throws -> [WindowSpan] {
+        try windowSpans(windowKind: windowKind, from: from, to: to)[service] ?? []
+    }
+
+    /// 所有服務一次查完，理由同 `buckets(windowKind:granularity:since:until:)`。
+    public func windowSpans(
+        windowKind: String = "weekly", from: Date, to: Date
+    ) throws -> [Service: [WindowSpan]] {
         try pool.read { db in
-            try Row.fetchAll(
+            var result: [Service: [WindowSpan]] = [:]
+            for row in try Row.fetchAll(
                 db,
                 sql: """
-                SELECT w.window_seq, w.first_seen_at, w.last_seen_at, w.used_percent,
-                       COALESCE(w.ended_early, 0) AS ended_early, c.reset_cause
-                  FROM v_window_summary w
-                  LEFT JOIN v_window_reset_cause c
-                    ON c.service = w.service AND c.window_kind = w.window_kind
-                   AND c.window_seq = w.window_seq
-                 WHERE w.service = ? AND w.window_kind = ? AND w.window_started = 1
-                   AND w.first_seen_at <= ? AND w.last_seen_at >= ?
-                 ORDER BY w.first_seen_at
+                SELECT service, window_seq, first_seen_at, last_seen_at, used_percent,
+                       COALESCE(ended_early, 0) AS ended_early, reset_cause
+                  FROM v_window_summary
+                 WHERE window_kind = ? AND window_started = 1
+                   AND first_seen_at <= ? AND last_seen_at >= ?
+                 ORDER BY first_seen_at
                 """,
-                arguments: [service.rawValue, windowKind,
+                arguments: [windowKind,
                             Int(to.timeIntervalSince1970), Int(from.timeIntervalSince1970)]
-            ).map { row in
-                WindowSpan(
+            ) {
+                guard let service = Service(rawValue: row["service"]) else { continue }
+                result[service, default: []].append(WindowSpan(
                     seq: row["window_seq"],
                     startedAt: Date(timeIntervalSince1970: TimeInterval(row["first_seen_at"] as Int)),
                     endedAt: Date(timeIntervalSince1970: TimeInterval(row["last_seen_at"] as Int)),
                     usedPercent: row["used_percent"] ?? 0,
                     endedEarly: (row["ended_early"] as Int) == 1,
                     resetCause: (row["reset_cause"] as String?).flatMap(ResetCause.init(rawValue:))
-                )
+                ))
             }
+            return result
         }
     }
 
@@ -559,19 +584,24 @@ public final class UsageDatabase: Sendable {
         }
     }
 
+    /// **這個查詢靠兩個索引才快**（`idx_sample_fetch`、`idx_fetch_time`，見 013）。
+    /// 少了它們，每一列都掃整張 sample，成本隨資料量平方成長 ——
+    /// 實測 2026-10-10 這一個查詢就佔了開圖表約 4.2 秒裡的 3 秒。
+    static let recentFetchesSQL = """
+        SELECT f.id, f.service, f.completed_at, f.ok, f.http_status,
+               f.error_kind, f.error_detail,
+               (SELECT s.percent FROM sample s
+                 WHERE s.fetch_id = f.id AND s.window_kind = 'weekly' LIMIT 1) AS weekly_percent
+          FROM fetch f
+         ORDER BY f.completed_at DESC, f.id DESC
+         LIMIT ?
+        """
+
     public func recentFetches(limit: Int = 10) throws -> [RecentFetch] {
         try pool.read { db in
             try Row.fetchAll(
                 db,
-                sql: """
-                SELECT f.id, f.service, f.completed_at, f.ok, f.http_status,
-                       f.error_kind, f.error_detail,
-                       (SELECT s.percent FROM sample s
-                         WHERE s.fetch_id = f.id AND s.window_kind = 'weekly' LIMIT 1) AS weekly_percent
-                  FROM fetch f
-                 ORDER BY f.completed_at DESC, f.id DESC
-                 LIMIT ?
-                """,
+                sql: Self.recentFetchesSQL,
                 arguments: [limit]
             ).compactMap { row in
                 guard let service = Service(rawValue: row["service"]) else { return nil }

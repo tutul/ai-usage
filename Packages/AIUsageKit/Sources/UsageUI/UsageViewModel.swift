@@ -94,18 +94,9 @@ public final class UsageViewModel {
             // 迄日要含整天 —— 選 9/2 卻只到 9/2 00:00 會讓當天完全看不到。
             let until = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: rangeEnd))?
                 .addingTimeInterval(-1)
-            var loaded: [Service: [UsageBucket]] = [:]
-            var spans: [Service: [UsageDatabase.WindowSpan]] = [:]
-            for service in Service.allCases {
-                loaded[service] = try database.buckets(
-                    service: service, granularity: granularity, since: since, until: until
-                )
-                spans[service] = try database.windowSpans(
-                    service: service, from: since, to: until ?? .now
-                )
-            }
-            buckets = loaded
-            windowSpans = spans
+            // 兩家一次查完 —— 分開查不會比較快，只是把全部樣本多算一遍。
+            buckets = try database.buckets(granularity: granularity, since: since, until: until)
+            windowSpans = try database.windowSpans(from: since, to: until ?? .now)
             let day = DateFormatter()
             day.calendar = calendar
             day.dateFormat = "yyyy-MM-dd"
