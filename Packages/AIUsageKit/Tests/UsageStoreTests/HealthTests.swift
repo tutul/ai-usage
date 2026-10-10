@@ -52,7 +52,7 @@ struct SleptHealthTests {
 
 @Suite("離線與健康度")
 struct OfflineHealthTests {
-    private func offline() -> FetchFailure { .init(kind: .offline, detail: "這台 Mac 連不到網際網路") }
+    private func offline() -> FetchFailure { .init(kind: .offline, detail: "這台 Mac 沒有網路連線") }
 
     @Test("offline 不計入失敗次數，另外計數")
     func offlineIsNotAFailure() throws {

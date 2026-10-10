@@ -37,29 +37,29 @@ struct SleepClassificationTests {
 }
 
 /// 實測 2026-09-15～10-10：Claude 的 568 筆 network 失敗有 540 筆落在 13 段連續失敗中，
-/// 使用者確認那幾段時間機器醒著但沒有網路。其中 5 段（460 筆）的訊息是
-/// `The request timed out.`，8 段（80 筆）是 `The Internet connection appears to be offline.` ——
-/// 兩種都是離線。見 D-022。
+/// 使用者確認那幾段時間機器醒著但沒有網路。其中 8 段（80 筆）是系統知道沒連線、
+/// 立刻回 `The Internet connection appears to be offline.` —— 這個分類抓的是這一種。
+/// 另外 5 段（460 筆）是 Wi-Fi 連著但不通，系統看不出來，仍記成 network。見 D-022。
 @Suite("離線的分類")
 struct OfflineClassificationTests {
-    @Test("網路失敗且連不到網際網路 -> offline，原始訊息保留")
+    @Test("網路失敗且系統沒有可用路徑 -> offline，原始訊息保留")
     func networkWhileOffline() {
-        for message in ["The request timed out.", "The Internet connection appears to be offline."] {
-            let failure = FetchFailure(kind: .network, detail: message).accountingForConnectivity(online: false)
-            #expect(failure.kind == .offline)
-            #expect(failure.detail.contains(message))
-        }
+        let message = "The Internet connection appears to be offline."
+        let failure = FetchFailure(kind: .network, detail: message).accountingForConnectivity(online: false)
+        #expect(failure.kind == .offline)
+        #expect(failure.detail.contains(message))
     }
 
-    /// 網路是通的卻連不上服務 —— 這才是該去查服務狀態的失敗，不能被歸成離線。
-    @Test("連得到網際網路 -> 維持 network")
+    /// 系統認為有路可走時一律維持 network —— 包含「Wi-Fi 連著但不通」。
+    /// 那種其實也是離線，但分不出來；記成失敗比把真的服務故障藏起來安全。
+    @Test("系統有可用路徑 -> 維持 network")
     func networkWhileOnline() {
         let failure = FetchFailure(kind: .network, detail: "The request timed out.")
             .accountingForConnectivity(online: true)
         #expect(failure.kind == .network)
     }
 
-    /// 拿得到 HTTP 回應就代表網路是通的，不管事後的連線檢查怎麼說。
+    /// 拿得到 HTTP 回應就代表網路是通的，不管那一刻的路徑狀態怎麼說。
     @Test("有 HTTP 回應的失敗不受影響")
     func httpFailuresUnchanged() {
         let auth = FetchFailure(kind: .auth, httpStatus: 401, detail: "expired")

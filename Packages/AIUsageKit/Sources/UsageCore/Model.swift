@@ -100,9 +100,11 @@ public enum FetchErrorKind: String, Sendable {
     /// 睡眠中的短暫喚醒會照常觸發取樣，系統接著回去睡、請求被凍結，醒來時早已逾時。
     /// 記成 `network` 會讓健康度與取樣日誌塞滿假失敗（實測 7 天 208 筆）。
     case slept
-    /// 這台機器當時連不到網際網路 —— 與 `slept` 同一類：**沒有觀測，不是服務故障**。見 D-022。
-    /// 與 `network` 分開，因為補救方式不同：`network` 是「網路通、但連不上這個服務」，
-    /// 值得去查服務狀態；這個只要等網路回來。
+    /// 這台機器當時沒有網路連線 —— 與 `slept` 同一類：**沒有觀測，不是服務故障**。見 D-022。
+    ///
+    /// **`network` 裡仍然混著離線。** 這個分類只抓得到「完全沒連線」；
+    /// 「Wi-Fi 連著但不通」系統看不出來，照樣記成 `network`（實測佔離線的 85%）。
+    /// 所以看到連續一整段的 `network`，先想是不是沒網路，再懷疑服務。
     case offline
     /// 續期端點不認這個 client ID。補救是換 client ID，**不是**重新登入 ——
     /// 所以不能併入 `auth`，否則使用者會去重新登入而白忙，自癒也會誤丟還能用的憑證。
@@ -149,7 +151,7 @@ public extension FetchFailure {
         guard kind == .network, !online else { return self }
         return FetchFailure(
             kind: .offline, httpStatus: httpStatus,
-            detail: "這台 Mac 連不到網際網路，本次未觀測（非服務故障）：\(detail)"
+            detail: "這台 Mac 沒有網路連線，本次未觀測（非服務故障）：\(detail)"
         )
     }
 }
