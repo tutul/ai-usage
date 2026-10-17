@@ -193,22 +193,18 @@ struct ServiceRow: View {
             .font(.caption)
 
             if stale, let hint = model.failureHint(service) {
-                // 需要重新登入時，訊息本身就是入口 —— 讀完就能直接點開步驟，
-                // 不必自己去翻 README 湊指令。
+                // 需要重新登入時給一顆**看得出來能按**的按鈕。原本是把整段訊息做成可點的
+                // 純文字、行尾一個小箭頭 —— 實際使用時完全看不出能點（2026-10-17）。
                 if model.needsLogin(service) {
-                    Button(action: onFixLogin) {
-                        HStack(alignment: .top, spacing: 4) {
-                            Text(hint)
-                                .lineLimit(3)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .multilineTextAlignment(.leading)
-                            Image(systemName: "chevron.right").font(.caption2)
-                        }
+                    Text(inlineMarkdown(hint))
                         .font(.caption2)
                         .foregroundStyle(.orange)
-                    }
-                    .buttonStyle(.plain)
-                    .help("顯示修復步驟")
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("查看重新登入步驟…", action: onFixLogin)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .tint(.orange)
                 } else {
                     Text(hint)
                         .font(.caption2)

@@ -132,8 +132,11 @@ security set-generic-password-partition-list \
   -S apple-tool:,apple:,teamid:TEAMID -s "Claude Code-credentials" -a ACCOUNT
 ```
 
-A system dialog will ask for your login keychain password (possibly twice). **Don't pass the password with `-k`**;
+You'll be asked for your login keychain password (possibly twice; since macOS 27 the prompt appears right in the terminal). **Don't pass the password with `-k`**;
 it would end up in your shell history.
+
+> The terminal prompt reads `(deprecated) password to unlock default:`. What's deprecated is entering the keychain password on the command line; **the command itself still works** (verified 2026-10-17 on macOS 27.0.1).
+> If a future macOS removes it, the app has no alternative yet — see docs/TODO.md #14.
 
 If you do it in the wrong order, that one "Always Allow" overwrites the list you set, and you'll have to run it again.
 
@@ -161,14 +164,17 @@ Both services **reuse your existing login**; you don't need to prepare any token
 
 ### The login expires periodically (roughly monthly)
 
-**Measured 2026-09-18: the whole renewal chain expired on day 28 after login.** Renewing every 8 hours and rotating the token constantly does not help — **rotation does not extend the lifetime of the login itself**. This is routine, not a failure.
+**Measured twice: the whole renewal chain expires about 28 days after login** (day 28.2 on 2026-09-18, day 27.6 on 10-17). Renewing every 8 hours and rotating the token constantly does not help — **rotation does not extend the lifetime of the login itself**. This is routine, not a failure.
 
-When it expires the menu shows "Claude 的登入已失效…" (the Claude login is no longer valid). **Click that message** to open a remedy window with the commands already filled in (including your own team ID and account), ready to copy:
+When it expires the menu shows "Claude 的登入已失效…" (the Claude login is no longer valid) and a **"查看重新登入步驟…"** (show re-login steps) button. It opens one command, already filled in with your team ID, account and app path — **copy the whole thing and paste it into a terminal**:
 
-1. Quit the app first — re-logging in rewrites the Keychain item, and the app reading it at the same time triggers a password dialog
-2. `claude auth login`
-3. Reset the Keychain partition list (the command is in the window)
+1. Quit the app — re-logging in rewrites the Keychain item, and the app reading it at the same time triggers a password dialog
+2. `claude auth login` (opens a browser)
+3. Reset the Keychain partition list (asks for your login password)
 4. Reopen the app; the next sample picks it up automatically
+
+It's one command because the window belongs to the app itself: listed separately, the window would close as soon as you did step 1.
+If you cancel the login in the browser, step 3 is skipped but the app is still reopened.
 
 Meanwhile the app **stops hammering the auth endpoint** — a refresh token known to be dead is tried once, and retried only after you log in again and the token changes.
 

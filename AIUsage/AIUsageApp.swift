@@ -145,8 +145,8 @@ struct AIUsageApp: App {
         .defaultSize(width: 760, height: 720)
 
         Window("重新登入 Claude", id: "login-remedy") {
-            LoginRemedyView(onQuit: { NSApplication.shared.terminate(nil) })
+            LoginRemedyView()
         }
-        .defaultSize(width: 520, height: 460)
+        .defaultSize(width: 560, height: 520)
     }
 }

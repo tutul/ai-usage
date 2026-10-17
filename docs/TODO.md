@@ -218,6 +218,20 @@ D-023 把一次重讀從約 4.2 秒降到約 0.4 秒，但剩下的部分沒有�
 
 等待時間還沒到需要處理的程度；到了再做，不要用「載入中」的轉圈蓋過去。
 
+### 14. 分區清單的設定方式被標為 deprecated（低 —— 觀察，2026-10-17 新增）
+
+`security set-generic-password-partition-list` 不帶 `-k` 時，macOS 27.0.1 的提示是
+`(deprecated) password to unlock default:`。被標為 deprecated 的是「在命令列輸入 keychain 密碼」
+這條路（`-k` 也是）；指令本身目前照常有效。
+
+**這是 D-016 的根基。** 少了這步，Claude Code 與本 app 會輪流被要求輸入鑰匙圈密碼（D-015）。
+目前**沒有已知的替代做法**：Keychain Access 的 GUI 看不到分區清單，
+程式裡能改它的 `SecKeychainItemSetAccess` 系列 API 也早就 deprecated。
+
+現在不用做什麼。每次 macOS 大版本更新後、或下一次重新登入（約 11-14）時，
+看這條指令還在不在、還有沒有效（`swift scripts/keychain-acl.swift` 確認清單含 `teamid:`）。
+真的被拿掉時，退路是接受密碼提示，或改走 TODO #7 的無憑證來源。
+
 ## 不做（brief 的 non-goal，仍然有效）
 
 - **Gemini** —— 其配額是每日請求數，weekly % 這個指標不存在
