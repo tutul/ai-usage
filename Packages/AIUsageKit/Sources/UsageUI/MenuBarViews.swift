@@ -169,6 +169,7 @@ struct ServiceRow: View {
 
     var body: some View {
         let reading = model.weekly(for: service)
+        let session = model.session(for: service)
         let stale = model.isStale(service)
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -180,17 +181,36 @@ struct ServiceRow: View {
             }
             ProgressView(value: min((reading?.percent ?? 0) / 100, 1))
                 .tint(stale ? .gray : tint(for: reading?.percent ?? 0))
-            HStack {
-                // 停擺時把「上次更新」擺在最顯眼處。良性（憑證過期）用次要色，
-                // 只有真的壞掉才用警示色。
-                Text(model.staleness(service))
-                    .foregroundStyle(model.needsAttention(service) ? .orange : .secondary)
-                Spacer()
-                if let countdown = reading?.resetCountdown {
-                    Text(countdown).foregroundStyle(.secondary)
+            // 倒數每分鐘重算 —— 選單開著時，5 小時窗的分鐘數要會動。
+            TimelineView(.everyMinute) { context in
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack {
+                        // 停擺時把「上次更新」擺在最顯眼處。良性（憑證過期）用次要色，
+                        // 只有真的壞掉才用警示色。
+                        Text(model.staleness(service, now: context.date))
+                            .foregroundStyle(model.needsAttention(service, now: context.date) ? .orange : .secondary)
+                        Spacer()
+                        if let countdown = reading?.resetCountdown(now: context.date) {
+                            Text(countdown).foregroundStyle(.secondary)
+                        }
+                    }
+                    // 5 小時窗：與週窗並排看，不必另外開 Claude Code／Codex 去查。
+                    if let session {
+                        HStack {
+                            Text("5 小時").foregroundStyle(.secondary)
+                            Text("\(Int(session.percent.rounded()))%")
+                                .monospacedDigit()
+                                .foregroundStyle(stale || session.percent < 70
+                                                 ? .secondary : tint(for: session.percent))
+                            Spacer()
+                            if let countdown = session.resetCountdown(now: context.date) {
+                                Text(countdown).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                 }
+                .font(.caption)
             }
-            .font(.caption)
 
             if stale, let hint = model.failureHint(service) {
                 // 需要重新登入時給一顆**看得出來能按**的按鈕。原本是把整段訊息做成可點的

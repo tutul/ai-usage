@@ -18,7 +18,7 @@ Every raw sample is kept permanently in a local SQLite database, so you can look
   <img src="docs/images/usage.png" width="480" alt="Usage history: daily line chart; gaps mean no samples">
 </p>
 
-Click the menu bar icon for this week's usage and reset countdown. "歷史圖表" (History) lets you look back by hour / day / week;
+Click the menu bar icon for this week's usage, the 5-hour window's usage, and when each resets. "歷史圖表" (History) lets you look back by hour / day / week;
 ranges with no samples show as breaks in the line, never filled in.
 
 <img src="docs/images/cache.png" width="480" alt="Cache tab: coverage and read/write volume, by day and project">

@@ -251,6 +251,11 @@ public final class UsageViewModel {
         readings.first { $0.service == service && $0.windowKind == "weekly" }
     }
 
+    /// 5 小時窗。兩家都有，但不保證每次都回（端點可能整個拿掉這個窗）。
+    public func session(for service: Service) -> CurrentReading? {
+        readings.first { $0.service == service && $0.windowKind == "session" }
+    }
+
     public func health(for service: Service) -> Health? {
         health.first { $0.service == service }
     }
@@ -318,15 +323,26 @@ public extension CurrentReading {
     /// 窗以「首次使用」為錨點。尚未開始時伺服器回報 resets_at = 現在 + 窗長，
     /// 該值隨每次取樣前移，倒數永遠停在同一個數字 —— 顯示出來會讓人
     /// 誤以為額度一直在被重置。
-    var resetCountdown: String? {
+    func resetCountdown(now: Date = .now) -> String? {
         guard windowStarted else {
             let length = windowSeconds.map { $0 >= 604_800 ? "7 天" : "5 小時" } ?? "整段"
             return "未開始計時（\(length)窗）"
         }
         guard let resetsAt else { return nil }
-        let seconds = Int(resetsAt.timeIntervalSinceNow)
+        return Self.countdown(seconds: Int(resetsAt.timeIntervalSince(now)))
+    }
+
+    /// 一天以上看到「小時」就夠；一天以內要看到分鐘 ——
+    /// 5 小時窗的倒數若只到小時，剩 40 分鐘時會顯示「0 小時後重置」。
+    /// 分鐘無條件進位：剩 30 秒時說「1 分後」，不說「0 分後」。
+    static func countdown(seconds: Int) -> String {
         guard seconds > 0 else { return "即將重置" }
-        let days = seconds / 86_400, hours = (seconds % 86_400) / 3600
-        return days > 0 ? "\(days) 天 \(hours) 小時後重置" : "\(hours) 小時後重置"
+        if seconds >= 86_400 {
+            return "\(seconds / 86_400) 天 \((seconds % 86_400) / 3600) 小時後重置"
+        }
+        let minutes = (seconds + 59) / 60
+        let hours = minutes / 60, rest = minutes % 60
+        if hours == 0 { return "\(rest) 分後重置" }
+        return rest == 0 ? "\(hours) 小時後重置" : "\(hours) 小時 \(rest) 分後重置"
     }
 }

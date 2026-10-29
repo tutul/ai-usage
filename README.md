@@ -15,7 +15,7 @@
   <img src="docs/images/usage.png" width="480" alt="用量歷史：日粒度折線圖，斷開處代表沒有取樣">
 </p>
 
-點開 menu bar 圖示看本週用量與重置倒數；「歷史圖表」可按小時／日／週回溯，
+點開 menu bar 圖示看本週用量、5 小時窗用量與兩者的重置倒數；「歷史圖表」可按小時／日／週回溯，
 沒有取樣的區間會斷開、不補值。
 
 <img src="docs/images/cache.png" width="480" alt="快取分頁：涵蓋率、讀寫量，按日與專案分列">
