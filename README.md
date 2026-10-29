@@ -11,8 +11,8 @@
 > 個人專案，不保證維護；請自行評估是否符合你所用服務的使用條款。
 
 <p>
-  <img src="docs/images/menu.png" width="280" alt="menu bar 點開：兩家本週用量、重置倒數、追蹤開關">
-  <img src="docs/images/usage.png" width="480" alt="用量歷史：日粒度折線圖，斷開處代表沒有取樣">
+  <img src="docs/images/menu.png" width="280" alt="menu bar 點開：兩家本週用量與 5 小時窗用量、各自的重置倒數、追蹤開關">
+  <img src="docs/images/usage.png" width="480" alt="用量歷史：小時粒度折線圖，斷開處代表沒有取樣">
 </p>
 
 點開 menu bar 圖示看本週用量、5 小時窗用量與兩者的重置倒數；「歷史圖表」可按小時／日／週回溯，

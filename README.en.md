@@ -14,8 +14,8 @@ Every raw sample is kept permanently in a local SQLite database, so you can look
 > UI labels below are quoted in Chinese with a translation, so you can match them on screen.
 
 <p>
-  <img src="docs/images/menu.png" width="280" alt="Menu bar popover: this week's usage for both services, reset countdown, tracking toggles">
-  <img src="docs/images/usage.png" width="480" alt="Usage history: daily line chart; gaps mean no samples">
+  <img src="docs/images/menu.png" width="280" alt="Menu bar popover: weekly and 5-hour usage for both services, each with its reset countdown, tracking toggles">
+  <img src="docs/images/usage.png" width="480" alt="Usage history: hourly line chart; gaps mean no samples">
 </p>
 
 Click the menu bar icon for this week's usage, the 5-hour window's usage, and when each resets. "歷史圖表" (History) lets you look back by hour / day / week;
