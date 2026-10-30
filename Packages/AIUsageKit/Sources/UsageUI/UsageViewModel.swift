@@ -320,6 +320,18 @@ public extension Service {
 }
 
 public extension CurrentReading {
+    /// 「已用」與「剩餘」都要寫出來。
+    ///
+    /// 只寫 `56%` 會被讀反：Codex 官方介面顯示的是**剩餘**（`44% left`），
+    /// 本 app 存的是端點回的 `used_percent`。兩個數字相加剛好 100，
+    /// 看起來像其中一邊算錯（2026-10-30 使用者實際回報）。
+    var usedAndRemaining: String { Self.usedAndRemaining(percent: percent) }
+
+    static func usedAndRemaining(percent: Double) -> String {
+        let used = Int(percent.rounded())
+        return "已用 \(used)% · 剩 \(max(0, 100 - used))%"
+    }
+
     /// 窗以「首次使用」為錨點。尚未開始時伺服器回報 resets_at = 現在 + 窗長，
     /// 該值隨每次取樣前移，倒數永遠停在同一個數字 —— 顯示出來會讓人
     /// 誤以為額度一直在被重置。

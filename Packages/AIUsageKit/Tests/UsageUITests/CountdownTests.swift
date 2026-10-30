@@ -36,3 +36,19 @@ struct CountdownTests {
         #expect(CurrentReading.countdown(seconds: -120) == "即將重置")
     }
 }
+
+/// 2026-10-30 實測：端點 `used_percent: 56`，Codex 官方顯示 `44% left`。
+/// 只寫 `56%` 會被讀成剩餘，看起來像兩邊對不上。
+@Suite("已用與剩餘")
+struct UsedAndRemainingTests {
+    @Test("兩個數字都寫出來，相加是 100")
+    func bothShown() {
+        #expect(CurrentReading.usedAndRemaining(percent: 56) == "已用 56% · 剩 44%")
+    }
+
+    @Test("用滿時剩 0，不會出現負數")
+    func neverNegative() {
+        #expect(CurrentReading.usedAndRemaining(percent: 100) == "已用 100% · 剩 0%")
+        #expect(CurrentReading.usedAndRemaining(percent: 101) == "已用 101% · 剩 0%")
+    }
+}

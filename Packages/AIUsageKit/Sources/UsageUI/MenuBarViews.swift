@@ -175,7 +175,7 @@ struct ServiceRow: View {
             HStack {
                 Text(service.displayName).font(.subheadline.weight(.medium))
                 Spacer()
-                Text(reading.map { "\(Int($0.percent.rounded()))%" } ?? "—")
+                Text(reading?.usedAndRemaining ?? "—")
                     .monospacedDigit()
                     .foregroundStyle(stale ? .secondary : .primary)
             }
@@ -198,7 +198,7 @@ struct ServiceRow: View {
                     if let session {
                         HStack {
                             Text("5 小時").foregroundStyle(.secondary)
-                            Text("\(Int(session.percent.rounded()))%")
+                            Text("已用 \(Int(session.percent.rounded()))%")
                                 .monospacedDigit()
                                 .foregroundStyle(stale || session.percent < 70
                                                  ? .secondary : tint(for: session.percent))

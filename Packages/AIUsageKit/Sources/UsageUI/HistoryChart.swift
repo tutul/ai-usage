@@ -797,9 +797,9 @@ public struct HistoryChartView: View {
                 .foregroundStyle(fetch.ok ? Color.green : (unobserved != nil ? Color.secondary : Color.orange))
 
             if fetch.ok {
-                Text(fetch.weeklyPercent.map { String(format: "%.0f%%", $0) } ?? "—")
+                Text(fetch.weeklyPercent.map { String(format: "已用 %.0f%%", $0) } ?? "—")
                     .font(.caption2.monospacedDigit())
-                    .frame(width: 44, alignment: .leading)
+                    .frame(width: 64, alignment: .leading)
                 // 成功但缺週窗 —— 端點回 200 不代表拿到週用量
                 if fetch.errorKind == "missing_window" {
                     Text("缺週窗").font(.caption2).foregroundStyle(.orange)
